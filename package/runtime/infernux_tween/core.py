@@ -630,7 +630,11 @@ class TweenManager:
         self._update_depth += 1
         try:
             for tween in tuple(self._running[UpdateType(update_type)]):
-                tween._advance((unscaled if tween.independent else delta) * self.timeScale)
+                try:
+                    tween._advance((unscaled if tween.independent else delta) * self.timeScale)
+                except Exception:
+                    tween.Kill()
+                    raise
         finally:
             self._update_depth -= 1
             if not self._update_depth and self._pending_commits:

@@ -103,3 +103,20 @@ def test_layout_revision_retires_old_indices_and_preserves_other_layers(text):
     assert np.all(animator.buffer.colors[:, :, 1:3] == 0)
     assert set(uploads+resets) == {TextGeometryLayer.Manual}
     animator.Reset()
+
+
+def test_faulted_root_is_retired_without_repeating_callback_side_effects(text):
+    target, uploads, _ = text
+    animator, events = DOTweenTextAnimator(target), []
+    def fail():
+        events.append("attempt")
+        raise RuntimeError("Failed user action")
+    sequence = DOTween.Sequence().Append(animator.DOScaleChar(0, 2, 0.5)).AppendCallback(fail)
+    healthy = animator.DOOffsetChar(1, (4, 0), 1).SetEase(Ease.Linear)
+    with pytest.raises(RuntimeError, match="Failed user action"):
+        DOTween.Update(0.5)
+    assert not sequence.IsActive() and events == ["attempt"]
+    assert len(uploads) == 1
+    DOTween.Update(1)
+    assert events == ["attempt"] and not healthy.IsActive()
+    assert animator.GetCharOffset(1) == pytest.approx((4, 0))

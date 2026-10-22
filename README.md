@@ -113,6 +113,8 @@ Text Animator. Use `DOOffsetChar`, `DORotateChar`, `DOScaleChar`, `DOColorChar` 
 `DOFadeChar`, or select `Range`, `Word` or `Line` for batched operations:
 
 ```python
+from infernux_tween import DOTween, DOTweenTextAnimator
+
 characters = DOTweenTextAnimator(label)
 sequence = DOTween.Sequence()
 sequence.Join(characters.Word(0).DOOffset((0, 20), 0.5).From())
@@ -125,6 +127,9 @@ available to Text Animator. Each manager update uploads once per text, regardles
 of the number of character tweens. A layout change refreshes geometry and kills
 old index tweens. `Reset`/`Dispose` clear only owned deformations and tweens. Link
 the root sequence to its GameObject for lifetime control.
+
+A setter or callback exception terminates its owning root timeline and propagates
+to the engine's normal error reporting. Failed actions are not replayed next frame.
 
 The string additions require the native grapheme API in the next 0.4.3 hotfix;
 they are being verified against engine source before the public SDK pin changes.
