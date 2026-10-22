@@ -19,5 +19,10 @@ Shortcuts set their target automatically. Control a group with `DOTween.Pause(ta
 Sequences support whole-timeline easing, relative child values and restart/yoyo
 loops. Incremental loops apply to value tweeners.
 
+For interactive spring motion, construct `Spring(1, stiffness=200, damping=10)`,
+call `Pull(0.2)` on interaction and `Update(fixed_delta)` on each simulation step.
+Pulls preserve velocity; `Animate(target)` changes the anchor. Retire a spring
+when `IsResting()` returns true. Springs are stateful, separately from seekable timelines.
+
 This development build contains the playback core; visual components and paths
 are not yet part of a public release.

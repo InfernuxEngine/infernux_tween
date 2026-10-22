@@ -1,5 +1,9 @@
 # 动画补间
 
+交互弹簧可使用 `Spring(1, stiffness=200, damping=10)`：交互时调用 `Pull(0.2)`，
+在固定模拟步中调用 `Update(fixed_delta)`。重复拉动保留速度，`Animate(target)` 改变锚点，
+`IsResting()` 可判断是否停止更新。弹簧有独立的动态状态，不混入可任意跳转的时间轴。
+
 使用 `DOTween.To(getter, setter, end_value, duration)` 创建属性补间，使用
 `DOTween.Sequence().Append(tween).Join(other_tween)` 编排序列。参数应在播放或
 加入序列前配置；同一个子动画只能属于一个序列。时间单位为秒。

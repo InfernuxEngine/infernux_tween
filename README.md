@@ -1,5 +1,10 @@
 # Infernux Tween
 
+`Spring(value, stiffness, damping)` supplies fixed-step damped motion for interactive effects.
+`Pull(amount)` adds displacement while preserving velocity; `Animate(target)` moves the anchor.
+Call `Update(fixed_delta)` from the game's simulation step and use `IsResting()` to retire settled effects.
+This stateful integrator is separate from seekable Tween/Sequence timelines.
+
 Official animation plugin for Infernux, maintained independently of the engine.
 Requires Infernux **>=0.4.3**. Native integration uses the **0.4.3 build 2** SDK;
 project-script imports additionally need the preload-library import fix currently
