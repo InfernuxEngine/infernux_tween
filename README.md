@@ -68,6 +68,12 @@ the computed duration or path length. Speed-based tweeners remain root timelines
 `SetOptions(AxisConstraint.Y, snapping=True)` keeps other axes live. Integer
 values are rounded; `alpha_only=True` is explicit for RGBA lists.
 
+`SetEase(engine_curve)` accepts the engine's authored `AnimationCurve`. The
+component's Custom Curve toggle opens the existing curve editor. For longer CPU
+key lists, use `EaseCurve(keys, pre_wrap="repeat", post_wrap="ping_pong")`; keys
+carry time, value and incoming/outgoing tangents. The sampler compiles Hermite
+segments once and supports arbitrary ordered key counts.
+
 Jump supports multiple arcs and relative destinations. Punch and seeded Shake
 restore the starting pose on completion and can be sampled with `Goto` without
 accumulating offsets. Blendable Move/Scale applies only its incremental share,

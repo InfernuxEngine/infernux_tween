@@ -133,7 +133,9 @@
       "tween.ease.InOutElastic": "InOutElastic",
       "tween.ease.InBounce": "InBounce",
       "tween.ease.OutBounce": "OutBounce",
-      "tween.ease.InOutBounce": "InOutBounce"
+      "tween.ease.InOutBounce": "InOutBounce",
+      "tween.custom_ease": "Custom Curve",
+      "tween.curve": "Curve"
     },
     "zh": {
       "tween.target": "目标物体（空：当前物体）",
@@ -267,7 +269,9 @@
       "tween.ease.InOutElastic": "弹性 / 缓入缓出",
       "tween.ease.InBounce": "弹跳 / 缓入",
       "tween.ease.OutBounce": "弹跳 / 缓出",
-      "tween.ease.InOutBounce": "弹跳 / 缓入缓出"
+      "tween.ease.InOutBounce": "弹跳 / 缓入缓出",
+      "tween.custom_ease": "自定义曲线",
+      "tween.curve": "曲线"
     }
   }
 }

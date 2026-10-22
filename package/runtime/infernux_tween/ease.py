@@ -54,6 +54,11 @@ def _bounce(t):
 def resolve_ease(ease):
     if callable(ease):
         return ease
+    if not isinstance(ease, str):
+        from infernux.graph.ramp import AnimationCurve
+        from .curve import EaseCurve
+        if isinstance(ease, AnimationCurve):
+            return EaseCurve(ease.keys, ease.pre_wrap, ease.post_wrap)
     name = Ease(ease).value
     if name == "Linear":
         return lambda t: t

@@ -1,7 +1,8 @@
 """Shared playback and reversible previews for authored animation components."""
 from enum import Enum
 
-from infernux.components import InxComponent, serialized_field
+from infernux.components import FieldType, InxComponent, serialized_field
+from infernux.graph.ramp import AnimationCurve
 from infernux.lib import GameObject, SceneManager
 from infernux.ui.ui_event import UIEvent
 
@@ -21,7 +22,11 @@ class TweenAuthoring(InxComponent):
     target: GameObject = serialized_field(default=None, display_name_key="tween.target")
     duration: float = serialized_field(default=1.0, range=(0, 1000), slider=False, display_name_key="tween.duration")
     delay: float = serialized_field(default=0.0, range=(0, 1000), slider=False, display_name_key="tween.delay")
-    ease: Ease = serialized_field(default=Ease.OutQuad, display_name_key="tween.ease", enum_labels=["tween.ease."+e.name for e in Ease])
+    ease: Ease = serialized_field(default=Ease.OutQuad, display_name_key="tween.ease", enum_labels=["tween.ease."+e.name for e in Ease],
+                                 visible_when=lambda c: not c.custom_ease)
+    custom_ease: bool = serialized_field(default=False, display_name_key="tween.custom_ease")
+    curve: AnimationCurve = serialized_field(default=AnimationCurve(), field_type=FieldType.ANIMATION_CURVE,
+                                              display_name_key="tween.curve", visible_when=lambda c: c.custom_ease)
     loops: int = serialized_field(default=1, display_name_key="tween.loops")
     loop_type: LoopType = serialized_field(default=LoopType.Restart, display_name_key="tween.loop_type", enum_labels=["tween.loop."+e.name for e in LoopType])
     clock: UpdateClock = serialized_field(default=UpdateClock.Auto, display_name_key="tween.clock", enum_labels=["tween.clock."+e.name for e in UpdateClock])
@@ -75,7 +80,7 @@ class TweenAuthoring(InxComponent):
             self._tween.Kill()
         tween = self._build(preview)
         try:
-            tween.SetDelay(self.delay).SetEase(self.ease).SetLoops(self.loops, self.loop_type)
+            tween.SetDelay(self.delay).SetEase(self.curve if self.custom_ease else self.ease).SetLoops(self.loops, self.loop_type)
             tween.SetRelative(self.relative).SetAutoKill(False if preview else self.auto_kill)
             if self.tween_id:
                 tween.SetId(self.tween_id)

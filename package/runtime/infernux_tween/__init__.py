@@ -6,5 +6,6 @@ from .shortcuts import RotateMode, ShortcutExtensions
 from .spring import Spring
 from .path import Path, PathMode, PathType, PathTween
 from .link import LinkBehaviour
+from .curve import EaseCurve
 
-__all__ = ["AxisConstraint", "DOTween", "Ease", "LinkBehaviour", "LoopType", "Path", "PathMode", "PathType", "PathTween", "RotateMode", "Sequence", "ShortcutExtensions", "Spring", "Tween", "Tweener", "TweenManager", "UpdateType"]
+__all__ = ["AxisConstraint", "DOTween", "Ease", "EaseCurve", "LinkBehaviour", "LoopType", "Path", "PathMode", "PathType", "PathTween", "RotateMode", "Sequence", "ShortcutExtensions", "Spring", "Tween", "Tweener", "TweenManager", "UpdateType"]
