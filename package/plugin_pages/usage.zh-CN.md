@@ -30,10 +30,15 @@ Play 也会恢复原始值。预览不发送游戏事件。生命周期管理组
 `DOScale`、`DORotate`、`DOColor`、`DOFade`、`DOSize`、`DOValue` 等快捷方法，
 目标使用引擎现有 Transform、UI、材质、灯光、相机或音频组件。Python 接口
 显式传入目标，不给原生类型动态添加方法。运动学刚体移动通过 Fixed 阶段的
-`move_position` 执行。四元数旋转等其余适配仍待补齐。
+`move_position` 执行，刚体旋转通过 `move_rotation` 执行。四元数使用最短弧插值，
+欧拉角支持超过一周的旋转。
 
 快捷方法自动设置 target；`DOTween.Pause(target)`、`Restart(target)`、
 `Kill(target)` 可统一控制目标，也可先 `SetId("menu")` 后按 ID 控制。
 Sequence 支持整组缓动、相对值和 Restart/Yoyo 循环；Incremental 仅用于 Tweener。
 
-当前为开发阶段的播放核心，尚未正式发布可视化组件与路径工具。
+自定义缓动使用原生 `AnimationCurve`，持续字效之外的 CPU 曲线可用 `EaseCurve`。
+Jump、Punch、Shake、Spiral 可跳转采样；Blendable 位移、缩放、旋转和颜色只叠加自身
+的变化，不覆盖其它动画。作者组件会将运行时动画关联到目标，目标销毁时清理暂停中的动画。
+
+当前仍在产品和平台验收阶段，尚未正式发布。

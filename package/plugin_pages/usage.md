@@ -41,3 +41,8 @@ Tween** for reversible preview; Save, Undo, selection changes and Play also rest
 the authored values. Preview sends no gameplay events. Visual Manager supplies
 explicit activation/deactivation actions for pooling. No public release is
 advertised until product and platform validation finishes.
+
+Custom easing accepts a native `AnimationCurve` or a compiled CPU `EaseCurve`.
+Jump, Punch, Shake and Spiral are seekable. Blendable movement, scale, rotation
+and color preserve other writers. Authored runtime animations link to target
+lifetime, including while paused.
