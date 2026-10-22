@@ -1,5 +1,12 @@
 # 动画补间
 
+路径使用 `ShortcutExtensions.DOPath(transform, points, seconds, PathType.CatmullRom)`，
+支持直线、Catmull-Rom 和三次贝塞尔。匀速使用 `Ease.Linear`；`SetSpeedBased()`
+将时长参数解释为每秒移动单位，`ForceInit()` 后可查询路径长度。四元数快捷方法使用最短弧旋转。
+
+`SetLink(game_object)` 在物体销毁时清理动画，包括暂停的动画。对象池行为由
+`LinkBehaviour` 选择；序列关联根节点。`WaitFor...` 复用引擎协程，异步版本需要调用方已有的 asyncio 循环。
+
 交互弹簧可使用 `Spring(1, stiffness=200, damping=10)`：交互时调用 `Pull(0.2)`，
 在固定模拟步中调用 `Update(fixed_delta)`。重复拉动保留速度，`Animate(target)` 改变锚点，
 `IsResting()` 可判断是否停止更新。弹簧有独立的动态状态，不混入可任意跳转的时间轴。

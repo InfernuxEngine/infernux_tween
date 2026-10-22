@@ -1,7 +1,7 @@
-"""One timeline for playback, seeking and sequences; no engine imports."""
+"""Shared playback, seeking and sequence timing."""
 
-from enum import Enum
-from math import floor, inf, isfinite
+from enum import Enum, IntFlag
+from math import floor, inf, isfinite, sqrt
 
 from .ease import Ease, resolve_ease
 
@@ -17,6 +17,14 @@ class UpdateType(str, Enum):
     Late = "late_update"
     Fixed = "fixed_update"
     Manual = "manual"
+
+
+class AxisConstraint(IntFlag):
+    None_ = 0
+    X = 1
+    Y = 2
+    Z = 4
+    W = 8
 
 
 class Tween:
@@ -42,6 +50,9 @@ class Tween:
         self._locked = False
         self._backwards = False
         self._callbacks = {}
+        self._waiters = []
+        self._speed_based = False
+        self._link = None
 
     @property
     def full_duration(self):
@@ -83,6 +94,18 @@ class Tween:
 
     def SetTarget(self, target):
         self.target = target
+        return self
+
+    def SetLink(self, target, behaviour=None):
+        from .link import LinkBehaviour, TweenLink
+        if self._parent is not None:
+            raise RuntimeError("Link the root sequence instead of its children")
+        if self._link is not None:
+            self._link.detach(self)
+        link = target.get_component(TweenLink)
+        if link is None:
+            link = target.add_component(TweenLink)
+        link.bind(self, LinkBehaviour.KillOnDestroy if behaviour is None else LinkBehaviour(behaviour))
         return self
 
     def SetRelative(self, relative=True):
@@ -141,9 +164,32 @@ class Tween:
         self.Goto(0.0 if include_delay else self.delay)
         return self.Pause()
 
+    def Flip(self):
+        self._backwards = not self._backwards
+        return self
+
+    def TogglePause(self):
+        return self.Pause() if self.playing else self.Play()
+
+    def ForceInit(self):
+        self._locked = True
+        return self
+
+    def SmoothRewind(self):
+        if self.position <= self.delay:
+            return self.Rewind(False)
+        if self.loop_type != LoopType.Incremental:
+            elapsed = self.Elapsed(False)
+            cycle = self.CompletedLoops() - int(elapsed == self.duration)
+            if self.loop_type == LoopType.Yoyo and cycle % 2:
+                elapsed = self.duration - elapsed
+            self.Goto(self.delay + elapsed)
+        return self.PlayBackwards()
+
     def Goto(self, position, and_play=False):
         if not self.active:
             return self
+        self.ForceInit()
         previous = self.position
         self._seek(min(self.full_duration, max(0.0, float(position))), previous, False)
         if and_play:
@@ -154,6 +200,7 @@ class Tween:
 
     def Complete(self, with_callbacks=False):
         if self.loops != -1 and self.active:
+            self.ForceInit()
             completed = self.IsComplete()
             self._seek(self.full_duration, self.position, bool(with_callbacks))
             if not self.active or self.position != self.full_duration:
@@ -173,15 +220,26 @@ class Tween:
             if not self.active:
                 return self
         self.active = self.playing = False
+        if self._link is not None:
+            self._link.detach(self)
         if self._owner is not None:
             self._owner._remove(self)
         self._emit("kill")
         self._callbacks.clear()
+        self._notify_waiters()
         return self
 
     def IsActive(self): return self.active
     def IsPlaying(self): return self.active and self.playing
     def IsComplete(self): return self.position >= self.full_duration
+    def IsBackwards(self): return self._backwards
+    def CompletedLoops(self):
+        return floor(max(0.0, self.position - self.delay) / self.duration) if self.duration else int(self.IsComplete())
+    def Duration(self, include_loops=True):
+        return self.full_duration - self.delay if include_loops else self.duration
+    def ElapsedPercentage(self, include_loops=True):
+        duration = self.Duration(include_loops)
+        return self.Elapsed(include_loops) / duration if 0 < duration < inf else float(self.IsComplete())
     def Elapsed(self, include_loops=True):
         elapsed = max(0.0, self.position - self.delay)
         if include_loops or self.duration == 0:
@@ -206,6 +264,7 @@ class Tween:
         if self.loop_type == LoopType.Yoyo and cycle % 2:
             progress = 1 - progress
         self._apply(progress, cycle, previous, callbacks)
+        self._notify_waiters()
         if not callbacks or not self.active:
             return
         self._emit("update")
@@ -225,6 +284,8 @@ class Tween:
         if not self.active or not self.playing:
             return
         previous = self.position
+        if not self._locked and previous + delta * self.timeScale >= self.delay:
+            self.ForceInit()
         position = min(self.full_duration, max(0.0, previous + delta * self.timeScale * (-1 if self._backwards else 1)))
         if position < self.delay and previous < self.delay:
             self.position = position
@@ -242,6 +303,48 @@ class Tween:
     def _apply(self, progress, cycle, previous, callbacks):
         raise NotImplementedError
 
+    def _condition(self, kind, value=0):
+        check = {
+            "complete": self.IsComplete, "kill": lambda: False, "start": lambda: self._started,
+            "rewind": lambda: self._started and self.position <= self.delay,
+            "loops": lambda: self.CompletedLoops() >= value, "position": lambda: self.Elapsed() >= value,
+        }[kind]
+        return lambda: not self.active or check()
+
+    def _wait(self, kind, value=0):
+        from infernux.coroutine import WaitUntil
+        return WaitUntil(self._condition(kind, value))
+
+    async def _async_wait(self, kind, value=0):
+        import asyncio
+        condition = self._condition(kind, value)
+        if condition():
+            return
+        future = asyncio.get_running_loop().create_future()
+        self._waiters.append((condition, future))
+        try:
+            await future
+        finally:
+            self._waiters = [(check, waiter) for check, waiter in self._waiters if waiter is not future]
+
+    def _notify_waiters(self):
+        for condition, future in tuple(self._waiters):
+            if not future.done() and condition():
+                future.set_result(None)
+
+    def WaitForCompletion(self): return self._wait("complete")
+    def WaitForKill(self): return self._wait("kill")
+    def WaitForStart(self): return self._wait("start")
+    def WaitForRewind(self): return self._wait("rewind")
+    def WaitForElapsedLoops(self, loops): return self._wait("loops", loops)
+    def WaitForPosition(self, position): return self._wait("position", position)
+    def AsyncWaitForCompletion(self): return self._async_wait("complete")
+    def AsyncWaitForKill(self): return self._async_wait("kill")
+    def AsyncWaitForStart(self): return self._async_wait("start")
+    def AsyncWaitForRewind(self): return self._async_wait("rewind")
+    def AsyncWaitForElapsedLoops(self, loops): return self._async_wait("loops", loops)
+    def AsyncWaitForPosition(self, position): return self._async_wait("position", position)
+
 
 class Tweener(Tween):
     def __init__(self, getter, setter, end_value, duration):
@@ -252,6 +355,10 @@ class Tweener(Tween):
         self._relative = False
         self._from = False
         self._ease = resolve_ease(Ease.OutQuad)
+        self._speed_based = False
+        self._constraint = AxisConstraint.None_
+        self._snapping = False
+        self._alpha_only = False
 
     def SetEase(self, ease):
         self._ease = resolve_ease(ease)
@@ -260,6 +367,25 @@ class Tweener(Tween):
     def _set_relative(self, relative):
         if not self._from:
             self._relative = relative
+
+    def SetSpeedBased(self, enabled=True):
+        self._configure()
+        if enabled and self.duration <= 0:
+            raise ValueError("Speed must be positive")
+        self._speed_based = bool(enabled)
+        return self
+
+    def SetOptions(self, constraint=AxisConstraint.None_, snapping=False, *, alpha_only=False):
+        self._configure()
+        if isinstance(constraint, bool):
+            snapping, constraint = constraint, AxisConstraint.None_
+        self._constraint, self._snapping = AxisConstraint(constraint), bool(snapping)
+        self._alpha_only = bool(alpha_only)
+        return self
+
+    def ForceInit(self):
+        self._initialize()
+        return super().ForceInit()
 
     def From(self, relative=False):
         self._configure()
@@ -272,6 +398,7 @@ class Tweener(Tween):
         if self._start is not None:
             return
         start, end = self._getter(), self._end
+        self._integer = type(start) is int
         self._sequence_value = isinstance(start, (tuple, list))
         if self._sequence_value:
             self._value_type = type(start)
@@ -286,6 +413,9 @@ class Tweener(Tween):
             start, end = end, start
         self._start, self._end = start, end
         self._delta = tuple(b - a for a, b in zip(start, end)) if self._sequence_value else end - start
+        if self._speed_based:
+            distance = sqrt(sum(float(item)**2 for item in self._delta)) if self._sequence_value or hasattr(self._delta, "__iter__") else abs(self._delta)
+            self.duration = distance / self.duration
 
     def _apply(self, progress, cycle, previous, callbacks):
         self._initialize()
@@ -294,6 +424,20 @@ class Tweener(Tween):
             value = self._value_type(a + d * factor for a, d in zip(self._start, self._delta))
         else:
             value = self._start + self._delta * factor
+        if self._integer:
+            value = round(value)
+        elif self._constraint or self._alpha_only or self._snapping:
+            if isinstance(value, (int, float)):
+                value = round(value) if self._snapping else value
+            else:
+                components = list(value)
+                if self._constraint or self._alpha_only:
+                    current = self._getter()
+                    components = [item if (index == 3 if self._alpha_only else self._constraint & (1 << index))
+                                  else current[index] for index, item in enumerate(components)]
+                if self._snapping:
+                    components = [round(item) for item in components]
+                value = self._value_type(components) if self._sequence_value else type(value)(*components)
         self._setter(value)
 
 
@@ -331,8 +475,12 @@ class Sequence(Tween):
             raise ValueError("A sequence owns a live, unstarted tween exactly once")
         if tween.loops == -1:
             raise ValueError("Nested tweens must have finite loops")
+        if tween._speed_based:
+            raise ValueError("Speed-based tweeners cannot be nested in a sequence")
         if tween._owner is not None:
             tween._owner._remove(tween)
+        if tween._link is not None:
+            tween._link.detach(tween)
         if self._relative:
             tween._set_relative(True)
         tween._parent = self
@@ -429,6 +577,10 @@ class TweenManager:
         return tween
 
     def To(self, getter, setter, end_value, duration):
+        from infernux.lib import quatf
+        if isinstance(end_value, quatf):
+            from .rotation import QuaternionTweener
+            return self.add(QuaternionTweener(getter, setter, end_value, duration))
         return self.add(Tweener(getter, setter, end_value, duration))
 
     def Sequence(self):

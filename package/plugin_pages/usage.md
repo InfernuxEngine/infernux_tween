@@ -1,5 +1,15 @@
 # Tween
 
+Paths use `ShortcutExtensions.DOPath(transform, points, seconds, PathType.CatmullRom)`.
+Choose `Ease.Linear` for constant arc-length motion. `SetSpeedBased()` treats
+the duration argument as units/second; `ForceInit()` resolves the path length.
+Quaternion shortcuts use shortest-arc rotations.
+
+`SetLink(game_object)` cleans up paused and active tweens when their owner is
+destroyed. Link a root sequence. `LinkBehaviour` selects pooling policies.
+`WaitFor...` returns an engine coroutine instruction; `AsyncWaitFor...` uses
+the caller's existing asyncio loop.
+
 Animate values with `DOTween.To(getter, setter, end_value, duration)`. Compose
 tweens with `DOTween.Sequence().Append(tween).Join(other_tween)`. Configure before
 playback or insertion into a sequence; each child belongs to one sequence.

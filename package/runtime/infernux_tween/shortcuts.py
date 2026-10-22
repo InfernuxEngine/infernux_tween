@@ -9,6 +9,8 @@ from infernux.lib import Transform, Vector3
 from infernux.ui import InxUIScreenComponent, UIButton, UIGroup, UIImage, UIText
 
 from .core import DOTween, Tweener, UpdateType
+from .path import DOPath, DOLocalPath
+from .rotation import DORotateQuaternion, DOLocalRotateQuaternion
 
 
 class RotateMode(str, Enum):
@@ -80,9 +82,12 @@ class _EulerTweener(Tweener):
     def _initialize(self):
         if self._start is not None:
             return
+        speed = self.duration if self._speed_based else None
         super()._initialize()
         if self.mode == RotateMode.Fast:
             self._delta = Vector3(*((self._delta[i] + 180) % 360 - 180 for i in range(3)))
+            if speed is not None:
+                self.duration = self._delta.magnitude / speed
 
 
 def DOMove(target, to, duration, snapping=False):
@@ -208,6 +213,10 @@ class ShortcutExtensions:
     DOFade = staticmethod(DOFade)
     DOValue = staticmethod(DOValue)
     DOSize = staticmethod(DOSize)
+    DOPath = staticmethod(DOPath)
+    DOLocalPath = staticmethod(DOLocalPath)
+    DORotateQuaternion = staticmethod(DORotateQuaternion)
+    DOLocalRotateQuaternion = staticmethod(DOLocalRotateQuaternion)
 
     @staticmethod
     def DOMoveX(target, to, duration, snapping=False): return _axis(target, "position", 0, to, duration, snapping)
