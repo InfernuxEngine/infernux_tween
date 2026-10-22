@@ -101,6 +101,34 @@ Use CPython 3.13. For development, install `sdk-requirements.txt`, run
 users will install it through the official plugin catalog without pip or Git.
 See [maintenance](MAINTAINING.md) for the independent release workflow.
 
+String tweening uses native extended graphemes, including combining marks and
+joined emoji. `DOText` enables/disables `UIText.rich_text` explicitly; native
+color/size/br tags stay balanced while a prefix or suffix is shown. String `From`,
+relative append, restart/yoyo, seeded scrambling and speed in characters/second
+are supported. Incremental string loops append relative text. `DOCounter`,
+`DOFontSize` and `DOMaxVisibleCharacters` cover common label animation.
+
+`DOTweenTextAnimator(text)` animates native character geometry without requiring
+Text Animator. Use `DOOffsetChar`, `DORotateChar`, `DOScaleChar`, `DOColorChar` or
+`DOFadeChar`, or select `Range`, `Word` or `Line` for batched operations:
+
+```python
+characters = DOTweenTextAnimator(label)
+sequence = DOTween.Sequence()
+sequence.Join(characters.Word(0).DOOffset((0, 20), 0.5).From())
+sequence.Join(characters.Range().DOFade(0, 0.5).From())
+```
+
+Character offsets/scales use canvas X/Y and rotation uses degrees. The animator
+owns the Manual geometry layer, leaving persistent effects and appearance layers
+available to Text Animator. Each manager update uploads once per text, regardless
+of the number of character tweens. A layout change refreshes geometry and kills
+old index tweens. `Reset`/`Dispose` clear only owned deformations and tweens. Link
+the root sequence to its GameObject for lifetime control.
+
+The string additions require the native grapheme API in the next 0.4.3 hotfix;
+they are being verified against engine source before the public SDK pin changes.
+
 The API names and common behaviors are informed by the public
 [DOTween documentation](https://dotween.demigiant.com/documentation.php).
 Implementation is original Python code; no DOTween/Unity binaries are bundled.

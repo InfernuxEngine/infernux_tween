@@ -546,7 +546,7 @@ class Sequence(Tween):
             if not self.active:
                 break
             if isinstance(item, Tween):
-                if sample >= start or old_sample >= start:
+                if item.active and (sample >= start or old_sample >= start):
                     item._seek(min(item.full_duration, max(0, sample - start)),
                                min(item.full_duration, max(0, old_sample - start)), callbacks and sample >= start)
             elif callbacks and ((old_sample < start <= sample) or (sample <= start < old_sample)
@@ -567,6 +567,8 @@ class TweenManager:
         self._tweens = {phase: {} for phase in UpdateType}
         self._running = {phase: {} for phase in UpdateType}
         self._on_activity = on_activity
+        self._update_depth = 0
+        self._pending_commits = {}
 
     def add(self, tween):
         tween._owner = self
@@ -578,6 +580,9 @@ class TweenManager:
 
     def To(self, getter, setter, end_value, duration):
         from infernux.lib import quatf
+        if isinstance(end_value, str):
+            from .string import StringTweener
+            return self.add(StringTweener(getter, setter, end_value, duration))
         if isinstance(end_value, quatf):
             from .rotation import QuaternionTweener
             return self.add(QuaternionTweener(getter, setter, end_value, duration))
@@ -622,8 +627,22 @@ class TweenManager:
         unscaled = delta if unscaled_delta is None else unscaled_delta
         if not isfinite(unscaled) or unscaled < 0:
             raise ValueError("Unscaled delta must be finite and nonnegative")
-        for tween in tuple(self._running[UpdateType(update_type)]):
-            tween._advance((unscaled if tween.independent else delta) * self.timeScale)
+        self._update_depth += 1
+        try:
+            for tween in tuple(self._running[UpdateType(update_type)]):
+                tween._advance((unscaled if tween.independent else delta) * self.timeScale)
+        finally:
+            self._update_depth -= 1
+            if not self._update_depth and self._pending_commits:
+                commits, self._pending_commits = self._pending_commits, {}
+                for commit in commits:
+                    commit()
+
+    def _defer_commit(self, commit):
+        if self._update_depth:
+            self._pending_commits[commit] = None
+        else:
+            commit()
 
     def ManualUpdate(self, delta, unscaled_delta):
         self.Update(delta, unscaled_delta, UpdateType.Manual)

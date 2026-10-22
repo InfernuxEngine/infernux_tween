@@ -8,5 +8,7 @@ from .path import Path, PathMode, PathType, PathTween
 from .link import LinkBehaviour
 from .curve import EaseCurve
 from .motion import SpiralMode
+from .string import ScrambleMode
+from .text import DOTweenTextAnimator
 
-__all__ = ["AxisConstraint", "DOTween", "Ease", "EaseCurve", "LinkBehaviour", "LoopType", "Path", "PathMode", "PathType", "PathTween", "RotateMode", "Sequence", "ShortcutExtensions", "SpiralMode", "Spring", "Tween", "Tweener", "TweenManager", "UpdateType"]
+__all__ = ["AxisConstraint", "DOTween", "DOTweenTextAnimator", "Ease", "EaseCurve", "LinkBehaviour", "LoopType", "Path", "PathMode", "PathType", "PathTween", "RotateMode", "ScrambleMode", "Sequence", "ShortcutExtensions", "SpiralMode", "Spring", "Tween", "Tweener", "TweenManager", "UpdateType"]

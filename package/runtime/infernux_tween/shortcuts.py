@@ -14,6 +14,7 @@ from .motion import (DOBlendableLocalMoveBy, DOBlendableMoveBy, DOBlendableScale
                      DOBlendableRotateBy, DOBlendableLocalRotateBy, DOSpiral,
                      DOJump, DOLocalJump, DOPunchPosition, DOPunchRotation, DOPunchScale,
                      DOShakePosition, DOShakeRotation, DOShakeScale)
+from .string import ScrambleMode, StringTweener
 
 
 def _vector(value):
@@ -270,6 +271,26 @@ def DOSize(target, to, duration):
     return DOTween.To(lambda: (target.width, target.height), write, tuple(to), duration).SetTarget(target)
 
 
+def DOText(target, to, duration, rich_text_enabled=True, scramble_mode=ScrambleMode.None_, scramble_chars=None, *, seed=0):
+    tween = StringTweener(lambda: target.text, lambda value: setattr(target, "text", value), str(to), duration)
+    tween._font_size = target.font_size
+    tween.SetOptions(rich_text_enabled, scramble_mode, scramble_chars, seed=seed)
+    target.rich_text = bool(rich_text_enabled)
+    return DOTween.add(tween).SetTarget(target)
+
+
+def DOCounter(target, from_value, to, duration, add_thousands_separator=True):
+    def write(value):
+        target.text = format(value, ",d" if add_thousands_separator else "d")
+    return DOTween.To(lambda: int(from_value), write, int(to), duration).SetTarget(target)
+
+
+def DOMaxVisibleCharacters(target, to, duration):
+    if target.max_visible_characters < 0:
+        target.max_visible_characters = 0
+    return _property(target, "max_visible_characters", int(to), duration)
+
+
 class ShortcutExtensions:
     """Python equivalent of extension calls: DOMove(transform, end, seconds)."""
 
@@ -282,6 +303,9 @@ class ShortcutExtensions:
     DOFade = staticmethod(DOFade)
     DOValue = staticmethod(DOValue)
     DOSize = staticmethod(DOSize)
+    DOText = staticmethod(DOText)
+    DOCounter = staticmethod(DOCounter)
+    DOMaxVisibleCharacters = staticmethod(DOMaxVisibleCharacters)
     DOPath = staticmethod(DOPath)
     DOLocalPath = staticmethod(DOLocalPath)
     DORotateQuaternion = staticmethod(DORotateQuaternion)
@@ -330,6 +354,8 @@ class ShortcutExtensions:
     def DOFieldOfView(target, to, duration): return _property(target, "field_of_view", to, duration)
     @staticmethod
     def DOOrthoSize(target, to, duration): return _property(target, "orthographic_size", to, duration)
+    @staticmethod
+    def DOFontSize(target, to, duration): return _property(target, "font_size", to, duration)
     @staticmethod
     def DOFloat(target, to, property, duration):
         return DOTween.To(lambda: target.get_float(property), lambda value: target.set_float(property, value),

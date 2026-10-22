@@ -5,7 +5,7 @@ from infernux.components.builtin import AudioSource, Camera, Light, Rigidbody, S
 from infernux.lib import Vector3
 from infernux.ui import UIButton, UIGroup, UIImage, UIProgressBar, UISlider, UIText
 
-from infernux_tween import ShortcutExtensions as S
+from infernux_tween import ScrambleMode, ShortcutExtensions as S
 from infernux_tween.authoring import TweenAuthoring
 
 
@@ -31,6 +31,7 @@ class AnimationType(str, Enum):
     Intensity = "Intensity"
     ShadowStrength = "ShadowStrength"
     Pitch = "Pitch"
+    Text = "Text"
 
 
 class TargetKind(str, Enum):
@@ -71,6 +72,7 @@ _COMPATIBLE = {
     AnimationType.FieldOfView: {TargetKind.Camera}, AnimationType.OrthoSize: {TargetKind.Camera},
     AnimationType.Intensity: {TargetKind.Light}, AnimationType.ShadowStrength: {TargetKind.Light},
     AnimationType.Pitch: {TargetKind.Audio},
+    AnimationType.Text: {TargetKind.Text},
 }
 
 
@@ -89,13 +91,23 @@ class DOTweenAnimation(TweenAuthoring):
     end_size = serialized_field(default=(100.0, 40.0), field_type=FieldType.VEC2, display_name_key="tween.end_size",
                                 visible_when=lambda c: c.animation_type == AnimationType.Size)
     end_value: float = serialized_field(default=1.0, display_name_key="tween.end_value",
-                                        visible_when=lambda c: c.animation_type not in _VECTOR | {AnimationType.Color, AnimationType.Size})
+                                        visible_when=lambda c: c.animation_type not in _VECTOR | {AnimationType.Color, AnimationType.Size, AnimationType.Text})
+    end_text: str = serialized_field(default="", multiline=True, display_name_key="tween.end_text",
+                                     visible_when=lambda c: c.animation_type == AnimationType.Text)
+    rich_text: bool = serialized_field(default=True, display_name_key="tween.rich_text",
+                                       visible_when=lambda c: c.animation_type == AnimationType.Text)
+    scramble_mode: ScrambleMode = serialized_field(default=ScrambleMode.None_, display_name_key="tween.scramble_mode",
+                                                    enum_labels=["tween.scramble."+e.name for e in ScrambleMode],
+                                                    visible_when=lambda c: c.animation_type == AnimationType.Text)
+    scramble_chars: str = serialized_field(default="", display_name_key="tween.scramble_chars",
+                                           visible_when=lambda c: c.animation_type == AnimationType.Text and c.scramble_mode == ScrambleMode.Custom)
     property_name: str = serialized_field(default="baseColor", display_name_key="tween.material_property",
                                           visible_when=lambda c: c.target_kind == TargetKind.Material)
     vibrato: int = serialized_field(default=10, range=(1, 100), slider=False, display_name_key="tween.vibrato",
                                     visible_when=lambda c: c.animation_type.name.startswith(("Punch", "Shake")))
     seed: int = serialized_field(default=0, display_name_key="tween.seed",
-                                 visible_when=lambda c: c.animation_type.name.startswith("Shake"))
+                                 visible_when=lambda c: c.animation_type.name.startswith("Shake") or
+                                 (c.animation_type == AnimationType.Text and c.scramble_mode != ScrambleMode.None_))
     is_from: bool = serialized_field(default=False, display_name_key="tween.from",
                                      visible_when=lambda c: not c.animation_type.name.startswith(("Punch", "Shake")))
 
@@ -120,6 +132,9 @@ class DOTweenAnimation(TweenAuthoring):
             raise ValueError(f"{self.animation_type.value} does not animate {self.target_kind.value}")
         target, kind = self._resolve_target(preview), self.animation_type
         shortcut = getattr(S, "DO" + kind.name)
+        if kind == AnimationType.Text:
+            return shortcut(target, self.end_text, self.duration, self.rich_text, self.scramble_mode,
+                            self.scramble_chars, seed=self.seed)
         if kind.name.startswith("Shake"):
             return shortcut(target, self.duration, Vector3(*self.end_vector), self.vibrato, seed=self.seed)
         if kind.name.startswith("Punch"):
@@ -155,3 +170,6 @@ class DOTweenAnimation(TweenAuthoring):
             scope.capture(target, "width", "height")
         elif kind == AnimationType.Value:
             scope.capture(target, "value")
+        elif kind == AnimationType.Text:
+            scope.capture_text(target)
+            scope.capture(target, "text", "rich_text")
