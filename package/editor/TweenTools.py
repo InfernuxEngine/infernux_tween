@@ -95,7 +95,7 @@ class TweenPanel(EditorPanel):
         self._bind_selection()
 
     def _bind_selection(self):
-        from infernux_tween.authoring import TweenAuthoring
+        from ..runtime.TweenAuthoring import TweenAuthoring
         self._components = []
         for identifier in SelectionService.instance().scene_object_ids():
             obj = SceneManager.instance().find_runtime_object_by_id(identifier)

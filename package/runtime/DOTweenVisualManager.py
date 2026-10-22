@@ -2,7 +2,7 @@ from enum import Enum
 
 from infernux.components import InxComponent, add_component_menu, serialized_field
 from infernux.lib import SceneManager
-from infernux_tween.authoring import TweenAuthoring
+from .TweenAuthoring import TweenAuthoring
 
 
 class ActivationAction(str, Enum):

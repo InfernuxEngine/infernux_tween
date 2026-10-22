@@ -3,7 +3,7 @@ from infernux.components.builtin import Rigidbody
 from infernux.lib import Vector3
 
 from infernux_tween import Path, PathMode, PathType, ShortcutExtensions as S
-from infernux_tween.authoring import TweenAuthoring
+from .TweenAuthoring import TweenAuthoring
 
 
 @add_component_menu("Animation/Tween Path")

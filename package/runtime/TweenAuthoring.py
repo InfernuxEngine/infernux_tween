@@ -6,8 +6,7 @@ from infernux.graph.ramp import AnimationCurve
 from infernux.lib import GameObject, SceneManager
 from infernux.ui.ui_event import UIEvent
 
-from .core import DOTween, LoopType, TweenManager, UpdateType
-from .ease import Ease
+from infernux_tween import DOTween, Ease, LoopType, TweenManager, UpdateType
 
 
 class UpdateClock(str, Enum):

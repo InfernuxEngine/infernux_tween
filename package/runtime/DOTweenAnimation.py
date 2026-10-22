@@ -6,7 +6,7 @@ from infernux.lib import Vector3
 from infernux.ui import UIButton, UIGroup, UIImage, UIProgressBar, UISlider, UIText
 
 from infernux_tween import ScrambleMode, ShortcutExtensions as S
-from infernux_tween.authoring import TweenAuthoring
+from .TweenAuthoring import TweenAuthoring
 
 
 class AnimationType(str, Enum):
