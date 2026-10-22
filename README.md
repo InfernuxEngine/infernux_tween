@@ -55,6 +55,12 @@ the computed duration or path length. Speed-based tweeners remain root timelines
 `SetOptions(AxisConstraint.Y, snapping=True)` keeps other axes live. Integer
 values are rounded; `alpha_only=True` is explicit for RGBA lists.
 
+Jump supports multiple arcs and relative destinations. Punch and seeded Shake
+restore the starting pose on completion and can be sampled with `Goto` without
+accumulating offsets. Blendable Move/Scale applies only its incremental share,
+preserving simultaneous tweens and external motion. These motion shortcuts are
+on `ShortcutExtensions`; their algorithms are independent implementations.
+
 `SetLink(game_object, LinkBehaviour.PauseOnDisablePlayOnEnable)` binds animation
 to object lifetime. A shared lifecycle component handles destruction even when
 all tweens are paused, without an idle frame callback. Link a sequence's root.

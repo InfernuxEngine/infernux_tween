@@ -11,6 +11,9 @@ from infernux.ui import InxUIScreenComponent, UIButton, UIGroup, UIImage, UIText
 from .core import DOTween, Tweener, UpdateType
 from .path import DOPath, DOLocalPath
 from .rotation import DORotateQuaternion, DOLocalRotateQuaternion
+from .motion import (DOBlendableLocalMoveBy, DOBlendableMoveBy, DOBlendableScaleBy,
+                     DOJump, DOLocalJump, DOPunchPosition, DOPunchRotation, DOPunchScale,
+                     DOShakePosition, DOShakeRotation, DOShakeScale)
 
 
 class RotateMode(str, Enum):
@@ -217,6 +220,17 @@ class ShortcutExtensions:
     DOLocalPath = staticmethod(DOLocalPath)
     DORotateQuaternion = staticmethod(DORotateQuaternion)
     DOLocalRotateQuaternion = staticmethod(DOLocalRotateQuaternion)
+    DOJump = staticmethod(DOJump)
+    DOLocalJump = staticmethod(DOLocalJump)
+    DOPunchPosition = staticmethod(DOPunchPosition)
+    DOPunchRotation = staticmethod(DOPunchRotation)
+    DOPunchScale = staticmethod(DOPunchScale)
+    DOShakePosition = staticmethod(DOShakePosition)
+    DOShakeRotation = staticmethod(DOShakeRotation)
+    DOShakeScale = staticmethod(DOShakeScale)
+    DOBlendableMoveBy = staticmethod(DOBlendableMoveBy)
+    DOBlendableLocalMoveBy = staticmethod(DOBlendableLocalMoveBy)
+    DOBlendableScaleBy = staticmethod(DOBlendableScaleBy)
 
     @staticmethod
     def DOMoveX(target, to, duration, snapping=False): return _axis(target, "position", 0, to, duration, snapping)
