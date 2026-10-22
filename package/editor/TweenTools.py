@@ -119,6 +119,11 @@ class TweenPanel(EditorPanel):
         self._scope = scope
 
     def on_render_content(self, ctx):
+        from infernux_tween import DOTween
+        diagnostics = DOTween.GetDiagnostics()
+        ctx.label(translate("tween.diagnostics").format(**diagnostics))
+        ctx.label(" / ".join(translate("tween.clock."+phase)+": "+str(counts["playing"])
+                             for phase, counts in diagnostics["phases"].items()))
         if any(not c.is_valid for c in self._components):
             self._stop()
             self._bind_selection()

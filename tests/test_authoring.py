@@ -93,6 +93,17 @@ def test_preview_is_local_to_its_scope_and_restores_pose_and_runtime_state(owner
     scope.close()
     assert obj.transform.local_position.x == 0 and not tween.IsActive()
     assert animation._tween is animation._preview_manager is animation._preview_registration is None
+    from infernux.components.builtin import Camera
+    camera = obj.add_component(Camera)
+    background = list(camera.background_color)
+    animation.animation_type, animation.target_kind = AnimationType.Color, TargetKind.Camera
+    animation.end_color = [0.8, 0.2, 0.4, 0.5]
+    scope = previews.begin('camera-preview')
+    animation.BeginPreview(scope)
+    animation._preview_manager.ManualUpdate(0.5, 0.5)
+    assert camera.background_color != background
+    scope.close()
+    assert camera.background_color == pytest.approx(background)
 
 
 def test_visual_manager_handles_native_pool_activation_without_idle_updates(owner, monkeypatch):
@@ -144,3 +155,23 @@ def test_external_authored_target_destruction_retires_a_paused_tween(owner, monk
     scene.destroy_game_object(target)
     scene.process_pending_destroys()
     assert obj and not tween.IsActive()
+
+
+def test_target_inference_is_unique_at_creation_and_ambiguity_requires_selection(owner):
+    from infernux.components.builtin import Light, Rigidbody
+    from infernux.ui import UIText
+    _, obj = owner
+    text = obj.add_component(UIText)
+    animation = obj.add_component(DOTweenAnimation)
+    animation.animation_type = AnimationType.Color
+    assert animation.target_kind == TargetKind.Auto
+    assert animation.CreateTween().target is text
+    animation.DOKill()
+    obj.add_component(Light)
+    with pytest.raises(ValueError, match="Select Target Component"):
+        animation.CreateTween()
+    assert DOTween.TotalActiveTweens() == 0
+    animation.animation_type = AnimationType.Move
+    body = obj.add_component(Rigidbody)
+    tween = animation.CreateTween()
+    assert tween.target is body and tween.update_type.name == "Fixed"

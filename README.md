@@ -55,6 +55,12 @@ targets use the standard material asset field. Animation components expose
 and `DOKill`. They create no runtime tween in Edit mode. Visual Manager applies
 explicit enable/disable actions for pooled objects.
 
+Automatic target selection resolves once when creating a tween. Physics motion
+uses an attached Rigidbody; a single compatible visual component is selected
+directly. Multiple candidates require an explicit choice. Materials always use
+the explicit asset field. The Tween panel displays active/playing root counts
+by update clock; `DOTween.GetDiagnostics()` exposes the same snapshot to tools.
+
 The **Animation / Tween** panel previews selected authored components without
 gameplay events. Stop, Save, Undo, selection changes and Play restore captured
 values. Path waypoints use the native serialized list and Scene position handles;

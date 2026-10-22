@@ -687,6 +687,12 @@ class TweenManager:
     def TotalActiveTweens(self): return sum(map(len, self._tweens.values()))
     def TotalPlayingTweens(self): return sum(map(len, self._running.values()))
 
+    def GetDiagnostics(self):
+        phases = {phase.name: {"active": len(self._tweens[phase]), "playing": len(self._running[phase])}
+                  for phase in UpdateType}
+        return {"active": sum(item["active"] for item in phases.values()),
+                "playing": sum(item["playing"] for item in phases.values()), "phases": phases}
+
     def Clear(self):
         for group in self._tweens.values():
             for tween in tuple(group):

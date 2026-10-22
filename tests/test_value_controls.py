@@ -64,3 +64,18 @@ def test_coroutine_and_async_waits_keep_user_callbacks_and_release_on_kill():
         await killed
         assert not tween._waiters
     asyncio.run(scenario())
+
+
+def test_diagnostics_count_roots_and_distinguish_paused_and_manual_clocks():
+    from infernux_tween import UpdateType
+    manager = TweenManager()
+    manager.Sequence().Append(manager.To(lambda: 0, lambda value: None, 1, 1))
+    manual = manager.To(lambda: 0, lambda value: None, 1, 1).SetUpdate(UpdateType.Manual).Pause()
+    diagnostics = manager.GetDiagnostics()
+    assert diagnostics['active'] == 2 and diagnostics['playing'] == 1
+    assert diagnostics['phases']['Normal'] == {'active': 1, 'playing': 1}
+    assert diagnostics['phases']['Manual'] == {'active': 1, 'playing': 0}
+    manual.Play()
+    manager.ManualUpdate(1, 1)
+    assert manager.GetDiagnostics()['active'] == 1
+    manager.Clear()
