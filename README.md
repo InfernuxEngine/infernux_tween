@@ -1,7 +1,9 @@
 # Infernux Tween
 
 Official animation plugin for Infernux, maintained independently of the engine.
-Requires Infernux **>=0.4.3**; development and integration use the **0.4.3 build 2** hotfix.
+Requires Infernux **>=0.4.3**. Native integration uses the **0.4.3 build 2** SDK;
+project-script imports additionally need the preload-library import fix currently
+under verification in the engine. No public plugin release is available yet.
 
 **In development.** No public plugin version is advertised yet. The current core
 implements value tweens, easing, playback controls, restart/yoyo/incremental value
@@ -22,6 +24,8 @@ sequence.AppendCallback(on_finished).SetLoops(2, LoopType.Yoyo)
 The installed plugin owns its engine callbacks. Empty or fully paused animation
 groups do not register a per-frame callback. Manual tweens advance only through
 `DOTween.ManualUpdate(scaled_delta, unscaled_delta)`.
+Editor Stop clears owned tweens, so restarting Play cannot retain old scene targets;
+pausing and resuming Play preserve animation state.
 
 Use CPython 3.13. For development, install `sdk-requirements.txt`, run
 `python -m pytest` and `python package.py`. The output is a normal `.inxpkg`;
