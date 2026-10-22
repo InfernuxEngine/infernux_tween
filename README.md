@@ -8,8 +8,9 @@ under verification in the engine. No public plugin release is available yet.
 **In development.** No public plugin version is advertised yet. The current core
 implements value tweens, easing, playback controls, restart/yoyo/incremental value
 loops, separate update clocks, nested sequences and native target shortcuts.
-Authoring components and the remaining product/platform checks are still
-being built. Incremental loops apply to value tweeners; sequences support restart
+Authoring components are implemented and undergoing Editor integration checks;
+the remaining product/platform checks are in progress. Incremental loops apply to
+value tweeners; sequences support restart
 and yoyo loops, whole-sequence easing and relative child values.
 
 ```python
@@ -46,6 +47,18 @@ opacity and size, slider/progress values, material color/float, camera propertie
 light color/intensity and audio volume/pitch. Rigidbody movement uses the engine's
 kinematic `move_position` in Fixed updates. Quaternion rotation uses shortest-arc
 spherical interpolation; Euler rotation supports explicit full turns.
+
+Add **Animation / Tween Animation**, **Tween Path** or **Tween Visual Manager**
+to author animation in Inspector. Empty Target means the owning object; material
+targets use the standard material asset field. Animation components expose
+`GetTween`, `GetTweens`, `DOPlay`, `DOPause`, `DORestart`, `DORewind`, `DOComplete`
+and `DOKill`. They create no runtime tween in Edit mode. Visual Manager applies
+explicit enable/disable actions for pooled objects.
+
+The **Animation / Tween** panel previews selected authored components without
+gameplay events. Stop, Save, Undo, selection changes and Play restore captured
+values. Path waypoints use the native serialized list and Scene position handles;
+dragging commits through the editor's component transaction service.
 
 Paths support Linear, Catmull-Rom and Cubic Bezier curves, closure, relative
 coordinates, arc-length speed, axis locks, look-at orientation and waypoint

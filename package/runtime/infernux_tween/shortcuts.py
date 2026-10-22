@@ -5,7 +5,7 @@ from functools import singledispatch
 
 from infernux.components.builtin import AudioSource, Camera, Light, Rigidbody, SpriteRenderer
 from infernux.core.material import Material
-from infernux.lib import Transform, Vector3
+from infernux.lib import Transform, Vector3, quatf
 from infernux.ui import InxUIScreenComponent, UIButton, UIGroup, UIImage, UIText
 
 from .core import DOTween, Tweener, UpdateType
@@ -78,8 +78,15 @@ def _axis(target, name, axis, to, duration, snapping=False):
 
 class _EulerTweener(Tweener):
     def __init__(self, target, name, to, duration, mode):
-        super().__init__(lambda: getattr(target, name), lambda value: setattr(target, name, value),
-                         _vector(to), duration)
+        if isinstance(target, Rigidbody):
+            if name != "euler_angles":
+                raise TypeError("Rigidbody rotation uses world coordinates")
+            super().__init__(lambda: target.rotation.euler_angles,
+                             lambda value: target.move_rotation(quatf.euler(*value)), _vector(to), duration)
+            self.update_type = UpdateType.Fixed
+        else:
+            super().__init__(lambda: getattr(target, name), lambda value: setattr(target, name, value),
+                             _vector(to), duration)
         self.mode = RotateMode(mode)
 
     def _initialize(self):

@@ -34,5 +34,10 @@ call `Pull(0.2)` on interaction and `Update(fixed_delta)` on each simulation ste
 Pulls preserve velocity; `Animate(target)` changes the anchor. Retire a spring
 when `IsResting()` returns true. Springs are stateful, separately from seekable timelines.
 
-This development build contains the playback core; visual components and paths
-are not yet part of a public release.
+Add **Animation / Tween Animation**, **Tween Path** or **Tween Visual Manager**
+to configure native targets without a script. An empty Target means this object.
+Paths use the native waypoint list and Scene position handles. Open **Animation /
+Tween** for reversible preview; Save, Undo, selection changes and Play also restore
+the authored values. Preview sends no gameplay events. Visual Manager supplies
+explicit activation/deactivation actions for pooling. No public release is
+advertised until product and platform validation finishes.

@@ -1,5 +1,12 @@
 # 动画补间
 
+添加“Animation / Tween Animation”“Tween Path”或“Tween Visual Manager”，
+可在 Inspector 中配置动画。目标物体为空时使用当前物体；材质通过标准资产选择框指定。
+路径点使用引擎列表控件和 Scene 位置控制柄，拖动通过引擎事务服务记录撤销。
+“动画 / 补间动画”面板支持预览、暂停、继续和停止还原；保存、撤销、切换选择和进入
+Play 也会恢复原始值。预览不发送游戏事件。生命周期管理组件可显式设置启用、禁用时
+的播放/暂停/重播等操作，适用于对象池。
+
 路径使用 `ShortcutExtensions.DOPath(transform, points, seconds, PathType.CatmullRom)`，
 支持直线、Catmull-Rom 和三次贝塞尔。匀速使用 `Ease.Linear`；`SetSpeedBased()`
 将时长参数解释为每秒移动单位，`ForceInit()` 后可查询路径长度。四元数快捷方法使用最短弧旋转。
