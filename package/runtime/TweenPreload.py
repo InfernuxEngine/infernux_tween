@@ -6,6 +6,10 @@ from infernux.timing import Time
 
 class TweenPreload(InxPreload):
     def preload(self, context):
+        from infernux.lib import TextLayout
+
+        if not hasattr(TextLayout, "split_graphemes"):
+            raise RuntimeError("Tween requires Infernux 0.4.3 build 3 or later")
         context.own_python_library("runtime/infernux_tween")
         from infernux_tween import DOTween, UpdateType
 

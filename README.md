@@ -1,9 +1,8 @@
 # Infernux Tween
 
 Official animation plugin for Infernux, maintained independently of the engine.
-Requires Infernux **>=0.4.3**. Native integration uses the **0.4.3 build 2** SDK;
-project-script imports additionally need the preload-library import fix currently
-under verification in the engine. No public plugin release is available yet.
+Requires Infernux **0.4.3 build 3 or later**, including the preload-library import
+and reload fixes. No public plugin release is available yet.
 
 **In development.** No public plugin version is advertised yet. The current core
 implements value tweens, easing, playback controls, restart/yoyo/incremental value
@@ -137,8 +136,8 @@ the root sequence to its GameObject for lifetime control.
 A setter or callback exception terminates its owning root timeline and propagates
 to the engine's normal error reporting. Failed actions are not replayed next frame.
 
-The string additions require the native grapheme API in the next 0.4.3 hotfix;
-they are being verified against engine source before the public SDK pin changes.
+The build 3 SDK is being validated against the engine source before the public
+SDK pin changes. The current public build 2 SDK does not provide the string API.
 
 The API names and common behaviors are informed by the public
 [DOTween documentation](https://dotween.demigiant.com/documentation.php).
