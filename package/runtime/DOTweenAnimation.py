@@ -112,6 +112,9 @@ class DOTweenAnimation(TweenAuthoring):
             raise ValueError(f"{obj.name} needs {_TARGETS[self.target_kind].__name__}")
         return target
 
+    def _lifetime_target(self):
+        return self.game_object if self.target_kind == TargetKind.Material else self._target_object()
+
     def _build(self, preview=False):
         if self.target_kind not in _COMPATIBLE.get(self.animation_type, {TargetKind.Transform}):
             raise ValueError(f"{self.animation_type.value} does not animate {self.target_kind.value}")

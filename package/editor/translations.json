@@ -2,7 +2,7 @@
   "$schema": "infernux.editor_translations",
   "locales": {
     "en": {
-      "tween.target": "Target Object (empty: this object)",
+      "tween.target": "Target Object",
       "tween.duration": "Duration",
       "tween.delay": "Delay",
       "tween.ease": "Ease",
@@ -138,7 +138,7 @@
       "tween.curve": "Curve"
     },
     "zh": {
-      "tween.target": "目标物体（空：当前物体）",
+      "tween.target": "目标物体",
       "tween.duration": "时长",
       "tween.delay": "延迟",
       "tween.ease": "缓动曲线",

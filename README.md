@@ -76,13 +76,16 @@ segments once and supports arbitrary ordered key counts.
 
 Jump supports multiple arcs and relative destinations. Punch and seeded Shake
 restore the starting pose on completion and can be sampled with `Goto` without
-accumulating offsets. Blendable Move/Scale applies only its incremental share,
-preserving simultaneous tweens and external motion. These motion shortcuts are
+accumulating offsets. Spiral supports an authored axis, expansion/contraction and
+axial depth. Blendable Move/Scale/Rotation/Color applies only its incremental share,
+preserving simultaneous tweens and external changes. These motion shortcuts are
 on `ShortcutExtensions`; their algorithms are independent implementations.
 
 `SetLink(game_object, LinkBehaviour.PauseOnDisablePlayOnEnable)` binds animation
 to object lifetime. A shared lifecycle component handles destruction even when
 all tweens are paused, without an idle frame callback. Link a sequence's root.
+Authored components link their runtime tween to the target automatically; destroying
+an external target retires its tween even while paused.
 `WaitForCompletion`, `WaitForKill`, `WaitForStart`, `WaitForRewind`,
 `WaitForElapsedLoops` and `WaitForPosition` return engine coroutine instructions.
 Their `AsyncWaitFor...` equivalents use the caller's running asyncio loop;

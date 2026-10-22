@@ -56,6 +56,9 @@ class TweenAuthoring(InxComponent):
     def _target_object(self):
         return self.game_object if self.target is None else self.target
 
+    def _lifetime_target(self):
+        return self._target_object()
+
     def on_enable(self):
         if SceneManager.instance().is_playing() and self._tween is None:
             self.CreateTween()
@@ -91,6 +94,8 @@ class TweenAuthoring(InxComponent):
                 tween.SetUpdate(phase, self.independent)
                 tween.OnStart(self.on_start.invoke).OnComplete(self.on_complete.invoke)
                 tween.OnKill(self.on_kill.invoke).OnRewind(self.on_rewind.invoke)
+                if SceneManager.instance().is_playing():
+                    tween.SetLink(self._lifetime_target())
             self._after_configure(tween)
         except BaseException:
             tween.Kill()

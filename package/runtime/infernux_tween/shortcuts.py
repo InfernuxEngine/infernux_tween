@@ -1,6 +1,5 @@
 """DOTween-style shortcuts using Infernux's native target properties."""
 
-from enum import Enum
 from functools import singledispatch
 
 from infernux.components.builtin import AudioSource, Camera, Light, Rigidbody, SpriteRenderer
@@ -8,17 +7,13 @@ from infernux.core.material import Material
 from infernux.lib import Transform, Vector3, quatf
 from infernux.ui import InxUIScreenComponent, UIButton, UIGroup, UIImage, UIText
 
-from .core import DOTween, Tweener, UpdateType
+from .core import DOTween, LoopType, Tweener, UpdateType
 from .path import DOPath, DOLocalPath
-from .rotation import DORotateQuaternion, DOLocalRotateQuaternion
+from .rotation import DORotateQuaternion, DOLocalRotateQuaternion, RotateMode
 from .motion import (DOBlendableLocalMoveBy, DOBlendableMoveBy, DOBlendableScaleBy,
+                     DOBlendableRotateBy, DOBlendableLocalRotateBy, DOSpiral,
                      DOJump, DOLocalJump, DOPunchPosition, DOPunchRotation, DOPunchScale,
                      DOShakePosition, DOShakeRotation, DOShakeScale)
-
-
-class RotateMode(str, Enum):
-    Fast = "Fast"
-    FastBeyond360 = "FastBeyond360"
 
 
 def _vector(value):
@@ -149,13 +144,77 @@ def _camera_color(target, to, duration):
 
 @DOColor.register(Light)
 def _light_color(target, to, duration):
-    return _property(target, "color", [to[i] for i in range(3)], duration)
+    return _property(target, "color", [to[i] for i in range(3)]+[target.color[3]], duration)
 
 
 @DOColor.register(Material)
 def _material_color(target, to, duration, property="baseColor"):
     return DOTween.To(lambda: target.get_color(property), lambda value: target.set_color(property, *value),
                       tuple(to), duration).SetTarget(target)
+
+
+class _BlendableColorTween(Tweener):
+    def __init__(self, getter, setter, to, duration):
+        start = list(getter())
+        self._read_current = getter
+        super().__init__(lambda: start, setter, to, duration)
+
+    def _initialize(self):
+        if self._start is None:
+            super()._initialize()
+            self._applied = (0.0,)*len(self._delta)
+
+    def _apply(self, progress, cycle, previous, callbacks):
+        self._initialize()
+        factor = self._ease(progress)+(cycle if self.loop_type == LoopType.Incremental else 0)
+        offset = tuple(delta*factor for delta in self._delta)
+        if self._snapping:
+            offset = tuple(round(start+item)-start for start, item in zip(self._start, offset))
+        if self._constraint or self._alpha_only:
+            offset = tuple(value if (i == 3 if self._alpha_only else self._constraint & (1 << i)) else 0.0
+                           for i, value in enumerate(offset))
+        current = self._read_current()
+        value = self._value_type(value+offset[i]-self._applied[i] for i, value in enumerate(current))
+        self._setter(value)
+        self._applied = offset
+
+
+def _blendable_color_property(target, name, to, duration):
+    return DOTween.add(_BlendableColorTween(lambda: getattr(target, name), lambda value: setattr(target, name, value),
+                                           list(to), duration)).SetTarget(target)
+
+
+@singledispatch
+def DOBlendableColor(target, to, duration):
+    raise TypeError(f"DOBlendableColor does not support {type(target).__name__}")
+
+
+@DOBlendableColor.register(UIText)
+@DOBlendableColor.register(UIImage)
+@DOBlendableColor.register(Camera)
+def _blendable_ui_color(target, to, duration):
+    return _blendable_color_property(target, "background_color" if isinstance(target, Camera) else "color", to, duration)
+
+
+@DOBlendableColor.register(UIButton)
+def _blendable_button_color(target, to, duration):
+    return _blendable_color_property(target, "background_color", to, duration)
+
+
+@DOBlendableColor.register(SpriteRenderer)
+def _blendable_sprite_color(target, to, duration):
+    return _blendable_color_property(target, "sprite_color", to, duration)
+
+
+@DOBlendableColor.register(Light)
+def _blendable_light_color(target, to, duration):
+    return _blendable_color_property(target, "color", [to[i] for i in range(3)]+[target.color[3]], duration)
+
+
+@DOBlendableColor.register(Material)
+def _blendable_material_color(target, to, duration, property="baseColor"):
+    return DOTween.add(_BlendableColorTween(lambda: target.get_color(property), lambda value: target.set_color(property, *value),
+                                           tuple(to), duration)).SetTarget(target)
 
 
 @singledispatch
@@ -238,6 +297,10 @@ class ShortcutExtensions:
     DOBlendableMoveBy = staticmethod(DOBlendableMoveBy)
     DOBlendableLocalMoveBy = staticmethod(DOBlendableLocalMoveBy)
     DOBlendableScaleBy = staticmethod(DOBlendableScaleBy)
+    DOBlendableRotateBy = staticmethod(DOBlendableRotateBy)
+    DOBlendableLocalRotateBy = staticmethod(DOBlendableLocalRotateBy)
+    DOBlendableColor = staticmethod(DOBlendableColor)
+    DOSpiral = staticmethod(DOSpiral)
 
     @staticmethod
     def DOMoveX(target, to, duration, snapping=False): return _axis(target, "position", 0, to, duration, snapping)

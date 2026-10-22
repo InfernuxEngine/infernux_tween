@@ -1,6 +1,13 @@
+from enum import Enum
+
 from infernux.lib import quatf
 
 from .core import DOTween, LoopType, Tweener, UpdateType
+
+
+class RotateMode(str, Enum):
+    Fast = "Fast"
+    FastBeyond360 = "FastBeyond360"
 
 
 class QuaternionTweener(Tweener):

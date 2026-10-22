@@ -129,3 +129,18 @@ def test_rigidbody_euler_rotation_uses_move_rotation_in_fixed_clock(owner, monke
     DOTween.Update(0.5, update_type=UpdateType.Fixed)
     assert quatf.angle(rotations[-1], quatf.identity()) == pytest.approx(45, abs=0.001)
     tween.Kill()
+
+
+def test_external_authored_target_destruction_retires_a_paused_tween(owner, monkeypatch):
+    from types import SimpleNamespace
+    import infernux_tween.authoring as module
+    scene, obj = owner
+    target = scene.create_game_object('Separate target')
+    animation = obj.add_component(DOTweenAnimation)
+    animation.target, animation.auto_play = target, False
+    monkeypatch.setattr(module, 'SceneManager', SimpleNamespace(instance=lambda: SimpleNamespace(is_playing=lambda: True)))
+    tween = animation.CreateTween()
+    assert tween.IsActive() and not tween.IsPlaying()
+    scene.destroy_game_object(target)
+    scene.process_pending_destroys()
+    assert obj and not tween.IsActive()

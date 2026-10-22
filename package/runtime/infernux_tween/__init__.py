@@ -7,5 +7,6 @@ from .spring import Spring
 from .path import Path, PathMode, PathType, PathTween
 from .link import LinkBehaviour
 from .curve import EaseCurve
+from .motion import SpiralMode
 
-__all__ = ["AxisConstraint", "DOTween", "Ease", "EaseCurve", "LinkBehaviour", "LoopType", "Path", "PathMode", "PathType", "PathTween", "RotateMode", "Sequence", "ShortcutExtensions", "Spring", "Tween", "Tweener", "TweenManager", "UpdateType"]
+__all__ = ["AxisConstraint", "DOTween", "Ease", "EaseCurve", "LinkBehaviour", "LoopType", "Path", "PathMode", "PathType", "PathTween", "RotateMode", "Sequence", "ShortcutExtensions", "SpiralMode", "Spring", "Tween", "Tweener", "TweenManager", "UpdateType"]

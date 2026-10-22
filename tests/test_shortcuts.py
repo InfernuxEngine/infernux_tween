@@ -79,3 +79,32 @@ def test_ui_fade_color_size_and_slider_notification(target):
     assert S.DOValue(slider, 10, 1, snapping=True).target is slider
     DOTween.Update(1)
     assert slider.value == 10 and values[-1] == 10
+
+
+def test_blendable_colors_use_one_creation_snapshot_and_preserve_external_color(target):
+    image = UIImage()
+    image.color = [0, 0, 0, 1]
+    red = S.DOBlendableColor(image, [1, 0, 0, 1], 1).SetEase(Ease.Linear).SetAutoKill(False)
+    green = S.DOBlendableColor(image, [0, 1, 0, 1], 1).SetEase(Ease.Linear).SetAutoKill(False)
+    DOTween.Update(0.5)
+    assert image.color == pytest.approx([0.5, 0.5, 0, 1])
+    image.color = [0.5, 0.5, 0.2, 1]
+    DOTween.Update(0.5)
+    assert image.color == pytest.approx([1, 1, 0.2, 1])
+    red.Rewind()
+    assert image.color == pytest.approx([0, 1, 0.2, 1])
+    green.Rewind()
+    assert image.color == pytest.approx([0, 0, 0.2, 1])
+
+
+def test_light_color_uses_the_native_rgba_property_shape(target):
+    from infernux.components.builtin import Light
+    light = target.game_object.add_component(Light)
+    S.DOColor(light, (1, 0, 0), 1).SetEase(Ease.Linear)
+    DOTween.Update(0.5)
+    assert light.color == pytest.approx([1, 0.5, 0.5, 1])
+    DOTween.Kill(light)
+    light.color = [0, 0, 0, 1]
+    S.DOBlendableColor(light, (1, 0, 0), 1).SetEase(Ease.Linear)
+    DOTween.Update(0.5)
+    assert light.color == pytest.approx([0.5, 0, 0, 1])

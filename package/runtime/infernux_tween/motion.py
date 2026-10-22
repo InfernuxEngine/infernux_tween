@@ -1,12 +1,19 @@
 """Seekable procedural motion and additive displacement."""
 from math import cos, pi, sin
+from enum import Enum
 import random
 
 from infernux.components.builtin import Rigidbody
-from infernux.lib import Vector3
+from infernux.lib import Vector3, quatf
 
 from .core import DOTween, LoopType, Tween, UpdateType
 from .ease import Ease, resolve_ease
+from .rotation import RotateMode
+
+
+class SpiralMode(str, Enum):
+    Expand = "Expand"
+    ExpandThenContract = "ExpandThenContract"
 
 
 def _vector(value):
@@ -140,3 +147,44 @@ def _blendable(target, name, by, duration):
 def DOBlendableMoveBy(target, by, duration): return _blendable(target, "position", by, duration)
 def DOBlendableLocalMoveBy(target, by, duration): return _blendable(target, "local_position", by, duration)
 def DOBlendableScaleBy(target, by, duration): return _blendable(target, "local_scale", by, duration)
+
+
+def _blendable_rotation(target, name, by, duration, mode):
+    by = _vector(by)
+    if RotateMode(mode) == RotateMode.Fast:
+        by = Vector3(*((value+180) % 360-180 for value in by))
+    applied = quatf.identity()
+    def write(value):
+        nonlocal applied
+        rotation = quatf.euler(*value)
+        current = getattr(target, name)
+        value = current*quatf.inverse(applied)*rotation if name == "local_rotation" else rotation*quatf.inverse(applied)*current
+        setattr(target, name, value)
+        applied = rotation
+    return DOTween.To(lambda: Vector3(0, 0, 0), write, by, duration).SetTarget(target)
+
+
+def DOBlendableRotateBy(target, by, duration, mode=RotateMode.FastBeyond360):
+    return _blendable_rotation(target, "rotation", by, duration, mode)
+
+
+def DOBlendableLocalRotateBy(target, by, duration, mode=RotateMode.FastBeyond360):
+    return _blendable_rotation(target, "local_rotation", by, duration, mode)
+
+
+def DOSpiral(target, duration, axis=None, mode=SpiralMode.Expand, speed=1.0, frequency=10.0, depth=0.0, snapping=False):
+    axis = Vector3(0, 0, 1) if axis is None else _vector(axis)
+    if axis.sqr_magnitude == 0:
+        raise ValueError("Spiral axis must be nonzero")
+    axis = axis.normalized
+    mode = SpiralMode(mode)
+    reference = Vector3(0, 1, 0) if abs(axis.y) < 0.9 else Vector3(1, 0, 0)
+    horizontal = Vector3.cross(reference, axis).normalized
+    vertical = Vector3.cross(axis, horizontal)
+    def sample(start, progress, relative):
+        elapsed = progress*duration*speed
+        radius = elapsed if mode == SpiralMode.Expand else duration*speed*(1-abs(2*progress-1))
+        angle = elapsed*frequency
+        return start+(horizontal*cos(angle)+vertical*sin(angle))*radius+axis*(depth*progress)
+    name = "position" if isinstance(target, Rigidbody) else "local_position"
+    return DOTween.add(MotionTween(target, name, duration, sample, snapping))
