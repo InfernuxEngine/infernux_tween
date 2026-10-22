@@ -1,0 +1,55 @@
+name: Plugin CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: sdk-requirements.txt
+      - run: python -m pip install -r sdk-requirements.txt
+      - run: python -m compileall -q package
+      - run: python -m pytest
+      - run: python package.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin-${{ runner.os }}
+          path: out/*
+          retention-days: 7
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: verify
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: sdk-requirements.txt
+      - run: python -m pip install -r sdk-requirements.txt
+      - run: python package.py --tag "${{ github.ref_name }}"
+      - name: Publish package and release metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" out/* --verify-tag --title "Infernux Tween ${{ github.ref_name }}" --generate-notes
