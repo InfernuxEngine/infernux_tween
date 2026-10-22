@@ -8,4 +8,14 @@
 通过 `Play`、`Pause`、`Restart`、`Rewind`、`Goto`、`Complete`、`Kill` 控制播放。
 回调在引擎线程执行，手动更新与自动更新相互独立。
 
+使用 `ShortcutExtensions.DOLocalMove(transform, (80, 20, 0), 0.4)`、
+`DOScale`、`DORotate`、`DOColor`、`DOFade`、`DOSize`、`DOValue` 等快捷方法，
+目标使用引擎现有 Transform、UI、材质、灯光、相机或音频组件。Python 接口
+显式传入目标，不给原生类型动态添加方法。运动学刚体移动通过 Fixed 阶段的
+`move_position` 执行。四元数旋转等其余适配仍待补齐。
+
+快捷方法自动设置 target；`DOTween.Pause(target)`、`Restart(target)`、
+`Kill(target)` 可统一控制目标，也可先 `SetId("menu")` 后按 ID 控制。
+Sequence 支持整组缓动、相对值和 Restart/Yoyo 循环；Incremental 仅用于 Tweener。
+
 当前为开发阶段的播放核心，尚未正式发布可视化组件与路径工具。

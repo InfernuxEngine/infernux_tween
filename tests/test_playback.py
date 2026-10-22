@@ -154,3 +154,20 @@ def test_backward_rewind_does_not_autokill():
     tween.PlayBackwards()
     manager.Update(1)
     assert value[0] == 0 and tween.IsActive() and not tween.IsPlaying()
+
+
+def test_relative_nested_sequence_and_sequence_ease():
+    manager, value = TweenManager(), [2.0]
+    tween = manager.To(lambda: value[0], lambda v: value.__setitem__(0, v), 4.0, 1).SetEase(Ease.Linear)
+    nested = manager.Sequence().Append(tween)
+    sequence = manager.Sequence().Append(nested).SetRelative().SetEase(lambda t: t * t)
+    manager.Update(0.5)
+    assert value[0] == pytest.approx(3.0)
+    manager.Update(0.5)
+    assert value[0] == 6.0
+    with pytest.raises(ValueError, match="Tweeners"):
+        manager.Sequence().SetLoops(2, LoopType.Incremental)
+    from_value = [2.0]
+    from_tween = manager.To(lambda: from_value[0], lambda v: from_value.__setitem__(0, v), 4.0, 1).From().SetRelative()
+    from_tween.Complete()
+    assert from_value[0] == 2.0

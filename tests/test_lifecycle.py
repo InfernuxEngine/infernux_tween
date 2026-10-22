@@ -38,3 +38,30 @@ def test_restart_from_complete_callback_keeps_the_tween_alive():
     assert tween.IsActive() and tween.IsPlaying()
     manager.Update(0.5)
     assert value[0] == 0.5
+    for with_callbacks in (False, True):
+        tween.Complete(with_callbacks=with_callbacks)
+        assert tween.IsActive() and tween.IsPlaying()
+        manager.Update(0.5)
+        assert value[0] == 0.5
+
+
+def test_target_and_id_controls_ignore_nested_tweens_and_allow_callback_mutation():
+    manager, target, other = TweenManager(), object(), object()
+    first = manager.To(lambda: 0.0, lambda value: None, 1.0, 1).SetTarget(target).SetId("menu")
+    second = manager.To(lambda: 0.0, lambda value: None, 1.0, 1).SetTarget(target).SetId("menu")
+    child = manager.To(lambda: 0.0, lambda value: None, 1.0, 1).SetTarget(other).SetId("menu")
+    sequence = manager.Sequence().Append(child).SetTarget(other)
+    assert manager.TotalActiveTweens() == manager.TotalPlayingTweens() == 3
+    assert manager.Pause("menu") == 2
+    assert not manager.IsTweening(target, also_check_if_playing=True)
+    assert manager.TweensByTarget(target) == [first, second]
+    assert manager.TweensById("menu", playing_only=True) == []
+    assert sequence.IsPlaying()
+    assert manager.Play(target) == 2
+    assert manager.Goto(target, 0.25) == 2
+    assert first.position == second.position == 0.25
+    first.OnKill(lambda: second.Kill())
+    assert manager.Kill(target) == 2
+    assert manager.TotalActiveTweens() == 1
+    assert manager.Complete(other) == 1 and not sequence.IsActive()
+    assert not manager.IsTweening(other)

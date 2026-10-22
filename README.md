@@ -7,8 +7,10 @@ under verification in the engine. No public plugin release is available yet.
 
 **In development.** No public plugin version is advertised yet. The current core
 implements value tweens, easing, playback controls, restart/yoyo/incremental value
-loops, separate update clocks and nested sequences. Target shortcuts, authoring
-components, paths and the remaining product/platform checks are still being built.
+loops, separate update clocks, nested sequences and native target shortcuts.
+Authoring components, paths and the remaining product/platform checks are still
+being built. Incremental loops apply to value tweeners; sequences support restart
+and yoyo loops, whole-sequence easing and relative child values.
 
 ```python
 from infernux_tween import DOTween, Ease, LoopType
@@ -26,6 +28,24 @@ groups do not register a per-frame callback. Manual tweens advance only through
 `DOTween.ManualUpdate(scaled_delta, unscaled_delta)`.
 Editor Stop clears owned tweens, so restarting Play cannot retain old scene targets;
 pausing and resuming Play preserve animation state.
+
+Python uses explicit targets instead of adding extension methods to engine types:
+
+```python
+from infernux_tween import DOTween, ShortcutExtensions as Tween
+
+Tween.DOLocalMove(transform, (80, 20, 0), 0.4)
+Tween.DOScale(transform, 1.2, 0.2)
+Tween.DOFade(group, 0, 0.3)
+DOTween.Pause(transform)
+DOTween.Restart(transform)
+```
+
+Shortcuts cover position/scale axes, Euler rotation (Fast/FastBeyond360), UI color,
+opacity and size, slider/progress values, material color/float, camera properties,
+light color/intensity and audio volume/pitch. Rigidbody movement uses the engine's
+kinematic `move_position` in Fixed updates. Quaternion rotation, paths and the
+remaining target-specific methods are not implemented yet.
 
 Use CPython 3.13. For development, install `sdk-requirements.txt`, run
 `python -m pytest` and `python package.py`. The output is a normal `.inxpkg`;

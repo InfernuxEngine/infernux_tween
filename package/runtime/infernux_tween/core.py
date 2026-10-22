@@ -85,6 +85,11 @@ class Tween:
         self.target = target
         return self
 
+    def SetRelative(self, relative=True):
+        self._configure()
+        self._set_relative(bool(relative))
+        return self
+
     def _on(self, name, callback):
         self._callbacks[name] = callback
         return self
@@ -151,10 +156,12 @@ class Tween:
         if self.loops != -1 and self.active:
             completed = self.IsComplete()
             self._seek(self.full_duration, self.position, bool(with_callbacks))
+            if not self.active or self.position != self.full_duration:
+                return self
             self.Pause()
             if not with_callbacks and not completed:
                 self._emit("complete")
-            if self.auto_kill:
+            if self.auto_kill and self.position == self.full_duration:
                 self.Kill()
         return self
 
@@ -250,10 +257,9 @@ class Tweener(Tween):
         self._ease = resolve_ease(ease)
         return self
 
-    def SetRelative(self, relative=True):
-        self._configure()
-        self._relative = bool(relative)
-        return self
+    def _set_relative(self, relative):
+        if not self._from:
+            self._relative = relative
 
     def From(self, relative=False):
         self._configure()
@@ -299,6 +305,23 @@ class Sequence(Tween):
         self._last_sample = 0.0
         self._sample_cycle = 0
         self._sampled = False
+        self._relative = False
+        self._ease = resolve_ease(Ease.Linear)
+
+    def SetLoops(self, loops, loop_type=LoopType.Restart):
+        if LoopType(loop_type) == LoopType.Incremental:
+            raise ValueError("Incremental loops apply to Tweeners, not Sequences")
+        return super().SetLoops(loops, loop_type)
+
+    def SetEase(self, ease):
+        self._ease = resolve_ease(ease)
+        return self
+
+    def _set_relative(self, relative):
+        self._relative = relative
+        for _, item in self._entries:
+            if isinstance(item, Tween):
+                item._set_relative(relative)
 
     def Insert(self, position, tween):
         self._configure()
@@ -310,6 +333,8 @@ class Sequence(Tween):
             raise ValueError("Nested tweens must have finite loops")
         if tween._owner is not None:
             tween._owner._remove(tween)
+        if self._relative:
+            tween._set_relative(True)
         tween._parent = self
         self._entries.append((float(position), tween))
         self._entries.sort(key=lambda entry: entry[0])
@@ -351,7 +376,7 @@ class Sequence(Tween):
     def AppendCallback(self, callback): return self.InsertCallback(self.duration, callback)
 
     def _apply(self, progress, cycle, previous, callbacks):
-        sample = progress * self.duration
+        sample = self._ease(progress) * self.duration
         if callbacks and cycle > self._sample_cycle:
             for completed in range(self._sample_cycle, cycle):
                 endpoint = 0.0 if self.loop_type == LoopType.Yoyo and completed % 2 else self.duration
@@ -450,6 +475,42 @@ class TweenManager:
 
     def ManualUpdate(self, delta, unscaled_delta):
         self.Update(delta, unscaled_delta, UpdateType.Manual)
+
+    def _matching(self, target_or_id=None):
+        return tuple(tween for group in self._tweens.values() for tween in group
+                     if target_or_id is None or tween.target is target_or_id or tween.id == target_or_id)
+
+    def _control(self, action, target_or_id=None, *args):
+        matching = self._matching(target_or_id)
+        for tween in matching:
+            getattr(tween, action)(*args)
+        return len(matching)
+
+    def Play(self, target_or_id=None): return self._control("Play", target_or_id)
+    def PlayForward(self, target_or_id=None): return self._control("PlayForward", target_or_id)
+    def PlayBackwards(self, target_or_id=None): return self._control("PlayBackwards", target_or_id)
+    def Pause(self, target_or_id=None): return self._control("Pause", target_or_id)
+    def Restart(self, target_or_id=None, include_delay=True): return self._control("Restart", target_or_id, include_delay)
+    def Rewind(self, target_or_id=None, include_delay=True): return self._control("Rewind", target_or_id, include_delay)
+    def Complete(self, target_or_id=None, with_callbacks=False): return self._control("Complete", target_or_id, with_callbacks)
+    def Kill(self, target_or_id=None, complete=False): return self._control("Kill", target_or_id, complete)
+
+    def Goto(self, target_or_id, position, and_play=False):
+        return self._control("Goto", target_or_id, position, and_play)
+
+    def IsTweening(self, target_or_id, also_check_if_playing=False):
+        return any(not also_check_if_playing or tween.playing for tween in self._matching(target_or_id))
+
+    def TweensById(self, identity, playing_only=False):
+        return [tween for tween in self._matching(identity)
+                if tween.id == identity and (not playing_only or tween.playing)]
+
+    def TweensByTarget(self, target, playing_only=False):
+        return [tween for tween in self._matching(target)
+                if tween.target is target and (not playing_only or tween.playing)]
+
+    def TotalActiveTweens(self): return sum(map(len, self._tweens.values()))
+    def TotalPlayingTweens(self): return sum(map(len, self._running.values()))
 
     def Clear(self):
         for group in self._tweens.values():
