@@ -173,6 +173,36 @@ def test_relative_nested_sequence_and_sequence_ease():
     assert from_value[0] == 2.0
 
 
+@pytest.mark.parametrize("backwards,yoyo,nested", (
+    (False, False, False), (True, False, False), (False, True, False),
+    (False, False, True), (True, False, True), (False, True, True),
+))
+def test_sequence_callbacks_follow_playback_direction_instead_of_ease_rebounds(backwards, yoyo, nested):
+    manager, events = TweenManager(), []
+    _, child = value_tween(manager, end=1.0)
+    body = manager.Sequence().Append(child).InsertCallback(0.95, lambda: events.append(body.Elapsed()))
+    body.SetEase(Ease.OutBounce)
+    root = manager.Sequence().Append(body) if nested else body
+    root.SetAutoKill(False).SetLoops(2 if yoyo else 1, LoopType.Yoyo)
+    if backwards:
+        root.Goto(root.Duration()).PlayBackwards()
+    for _ in range(240 if yoyo else 120):
+        manager.Update(1 / 120)
+    assert len(events) == (6 if yoyo else 3)
+    manager.Clear()
+
+
+def test_nested_sequence_callbacks_follow_the_clock_supplied_by_the_parent():
+    manager, events = TweenManager(), []
+    _, child = value_tween(manager, end=1.0)
+    body = manager.Sequence().Append(child).InsertCallback(0.95, lambda: events.append(body.Elapsed()))
+    manager.Sequence().Append(body).SetEase(Ease.OutBounce)
+    for _ in range(120):
+        manager.Update(1 / 120)
+    assert len(events) == 5
+    manager.Clear()
+
+
 def test_delay_play_and_seek_use_elapsed_time_without_repeating_callbacks():
     manager, events = TweenManager(), []
     value, tween = value_tween(manager)

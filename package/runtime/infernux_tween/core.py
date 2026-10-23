@@ -634,8 +634,10 @@ class Sequence(Tween):
                         elif "complete" in hooks:
                             points.append(start + item.full_duration)
                         callback = None
-                    else:
+                    elif (sample < old_sample) == (progress < self._last_progress):
                         points, callback = (start,), item
+                    else:
+                        continue
                     for point in set(points):
                         if ((old_sample < point <= sample) or (sample <= point < old_sample)
                                 or (include_start and point == 0)):

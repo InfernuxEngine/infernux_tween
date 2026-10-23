@@ -26,6 +26,11 @@ Play 也会恢复原始值。预览不发送游戏事件。生命周期管理组
 通过 `Play`、`Pause`、`Restart`、`Rewind`、`Goto`、`Complete`、`Kill` 控制播放。
 回调在引擎线程执行，手动更新与自动更新相互独立。
 
+`Goto(seconds)` 使用不含首次延时的动画时间。Sequence 的 `SetDelay(seconds)`
+默认在开头加入随循环重复的间隔；传入 `asPrependedIntervalIfSequence=False`
+则只在首次播放前等待。序列回调内暂停会保留该回调所在的位置，`Play()` 从那里继续，
+包括并行和嵌套子动画。根动画播放期间可用 `SetUpdate` 切换时钟；子动画跟随根时钟。
+
 使用 `ShortcutExtensions.DOLocalMove(transform, (80, 20, 0), 0.4)`、
 `DOScale`、`DORotate`、`DOColor`、`DOFade`、`DOSize`、`DOValue` 等快捷方法，
 目标使用引擎现有 Transform、UI、材质、灯光、相机或音频组件。Python 接口

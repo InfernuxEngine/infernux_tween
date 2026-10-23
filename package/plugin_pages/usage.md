@@ -18,6 +18,13 @@ playback or insertion into a sequence; each child belongs to one sequence.
 Control it with `Play`, `Pause`, `Restart`, `Rewind`, `Goto`, `Complete` and `Kill`.
 Callbacks run on the engine thread. Times are seconds.
 
+`Goto(seconds)` addresses the animation timeline without its initial delay.
+On a sequence, `SetDelay(seconds)` prepends a repeating interval; pass
+`asPrependedIntervalIfSequence=False` for a one-time startup delay. A sequence
+callback can pause at its own position and `Play()` resumes there, including
+joined and nested children. A root can change its update clock with `SetUpdate`
+during playback; children use their root's clock.
+
 Use `ShortcutExtensions.DOLocalMove(transform, (80, 20, 0), 0.4)` and the other
 native target shortcuts for movement, scale, rotation, UI color/opacity/size,
 slider values, materials, cameras, lights and audio. Python passes the target
