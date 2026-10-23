@@ -47,6 +47,14 @@ light color/intensity and audio volume/pitch. Rigidbody movement uses the engine
 kinematic `move_position` in Fixed updates. Quaternion rotation uses shortest-arc
 spherical interpolation; Euler rotation supports explicit full turns.
 
+| API convention | Python mapping |
+| --- | --- |
+| Target extension methods | Pass the native target first: `Tween.DOMove(transform, position, seconds)`. |
+| Typed `To` overloads | Use `DOTween.To(getter, setter, end_value, seconds)`; the end value selects scalar, vector, color or string interpolation. |
+| Enum member named `None` | Use `AxisConstraint.None_` or `ScrambleMode.None_`; `None` is a Python keyword. |
+| Material float property | Use `Tween.DOFloat(material, end_value, property_name, seconds)`. |
+| UI transform shortcuts | Use native position, `DOSize` and UIGroup opacity; there is no separate RectTransform wrapper. |
+
 Add **Animation / Tween Animation**, **Tween Path** or **Tween Visual Manager**
 to author animation in Inspector. Empty Target means the owning object; material
 targets use the standard material asset field. Animation components expose

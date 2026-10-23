@@ -41,4 +41,24 @@ Sequence 支持整组缓动、相对值和 Restart/Yoyo 循环；Incremental 仅
 Jump、Punch、Shake、Spiral 可跳转采样；Blendable 位移、缩放、旋转和颜色只叠加自身
 的变化，不覆盖其它动画。作者组件会将运行时动画关联到目标，目标销毁时清理暂停中的动画。
 
-当前仍在产品和平台验收阶段，尚未正式发布。
+字符串补间按引擎字素推进，组合重音和连接的 emoji 不会被从中间切开。
+`ShortcutExtensions.DOText(label, "欢迎回来 世界", 0.8)` 可以逐步显示文字，
+原生颜色、字号和换行标签保持完整；计数器、字号和可见数分别使用
+`DOCounter`、`DOFontSize`、`DOMaxVisibleCharacters`。
+
+已有文字可以按字符批量做几何动画：
+
+```python
+from infernux_tween import DOTween, DOTweenTextAnimator
+
+characters = DOTweenTextAnimator(label)
+sequence = DOTween.Sequence()
+sequence.Join(characters.Range().DOOffset((0, 12), 0.4).From())
+sequence.Join(characters.Range().DOFade(0, 0.4).From())
+sequence.SetLink(label.game_object)
+```
+
+`Character`、`Range`、`Word`、`Line` 使用原生字素索引；偏移使用文字局部坐标，
+Y 正方向向下，旋转单位为度。它使用 Manual 层，可与 Text Animator 的持续字效、
+出入场叠加。同一文字使用一个 Manual 层控制器；`Reset` 或 `Dispose` 还原该层。
+布局改变会终止旧索引动画，因此应在 `DOText` 完成文字修改后再创建字符动画。

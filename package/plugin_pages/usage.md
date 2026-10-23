@@ -39,10 +39,33 @@ to configure native targets without a script. An empty Target means this object.
 Paths use the native waypoint list and Scene position handles. Open **Animation /
 Tween** for reversible preview; Save, Undo, selection changes and Play also restore
 the authored values. Preview sends no gameplay events. Visual Manager supplies
-explicit activation/deactivation actions for pooling. No public release is
-advertised until product and platform validation finishes.
+explicit activation/deactivation actions for pooling.
 
 Custom easing accepts a native `AnimationCurve` or a compiled CPU `EaseCurve`.
 Jump, Punch, Shake and Spiral are seekable. Blendable movement, scale, rotation
 and color preserve other writers. Authored runtime animations link to target
 lifetime, including while paused.
+
+String animation uses native graphemes, so a combining accent or joined emoji is
+one step. `ShortcutExtensions.DOText(label, "Welcome 世界", 0.8)` reveals the text;
+native color/size/br tags remain balanced. `DOCounter`, `DOFontSize` and
+`DOMaxVisibleCharacters` animate counters, size and reveal limits.
+
+For an existing label, animate its character geometry in one batch:
+
+```python
+from infernux_tween import DOTween, DOTweenTextAnimator
+
+characters = DOTweenTextAnimator(label)
+sequence = DOTween.Sequence()
+sequence.Join(characters.Range().DOOffset((0, 12), 0.4).From())
+sequence.Join(characters.Range().DOFade(0, 0.4).From())
+sequence.SetLink(label.game_object)
+```
+
+`Character`, `Range`, `Word` and `Line` select native graphemes. Offsets use local
+text coordinates, positive Y down; rotations use degrees. This animator owns the
+Manual layer, so Text Animator effects and appearances can run alongside it.
+Use one Manual-layer controller per label. `Reset` or `Dispose` restores that
+layer; changing the layout retires old index tweens. Create character animations
+after a `DOText` operation finishes changing the label's text.
