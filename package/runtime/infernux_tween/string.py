@@ -10,13 +10,13 @@ from infernux.lib import TextLayout
 from .core import LoopType, Tweener, _UNSET
 
 
-class ScrambleMode(str, Enum):
-    None_ = "None"
-    All = "All"
-    Uppercase = "Uppercase"
-    Lowercase = "Lowercase"
-    Numerals = "Numerals"
-    Custom = "Custom"
+class ScrambleMode(Enum):
+    NONE = "None"
+    ALL = "All"
+    UPPERCASE = "Uppercase"
+    LOWERCASE = "Lowercase"
+    NUMERALS = "Numerals"
+    CUSTOM = "Custom"
 
 
 _TAG = re.compile(r"<[^>]*>")
@@ -99,18 +99,23 @@ class StringTweener(Tweener):
     def __init__(self, getter, setter, end_value, duration):
         super().__init__(getter, setter, end_value, duration)
         self._rich_text = True
-        self._scramble_mode = ScrambleMode.None_
+        self._scramble_mode = ScrambleMode.NONE
         self._scramble_chars = None
         self._seed = 0
         self._font_size = 18.0
 
-    def SetOptions(self, rich_text_enabled=True, scramble_mode=ScrambleMode.None_, scramble_chars=None, *, seed=0):
-        self._configure()
-        mode = ScrambleMode(scramble_mode)
-        if mode == ScrambleMode.Custom and not scramble_chars:
+    def set_options(self, rich_text_enabled: bool, scramble_mode: ScrambleMode=ScrambleMode.NONE, scramble_chars: str|None=None):
+        if not self._configure():
+            return self
+        if type(rich_text_enabled) is not bool or not isinstance(scramble_mode, ScrambleMode):
+            raise TypeError("string options require bool and ScrambleMode")
+        if scramble_chars is not None and not isinstance(scramble_chars, str):
+            raise TypeError("scramble_chars must be str or None")
+        mode = scramble_mode
+        if mode == ScrambleMode.CUSTOM and not scramble_chars:
             raise ValueError("Custom scrambling needs a character alphabet")
         self._rich_text, self._scramble_mode = bool(rich_text_enabled), mode
-        self._scramble_chars, self._seed = scramble_chars, int(seed)
+        self._scramble_chars = scramble_chars
         if self._start is not None:
             self._prepare(self._start, self._end)
         return self
@@ -129,8 +134,8 @@ class StringTweener(Tweener):
             else:
                 start = self._from_value+start if self._relative else self._from_value
         self._set_values(start, end)
-        if self.loop_type == LoopType.Incremental and not self._append:
-            raise ValueError("Incremental string loops require SetRelative()")
+        if self.loop_type == LoopType.INCREMENTAL and not self._append:
+            raise ValueError("Incremental string loops require set_relative()")
 
     def _set_values(self, start, end):
         self._append = self._relative and not self._from
@@ -142,12 +147,12 @@ class StringTweener(Tweener):
 
     def _prepare(self, start, end):
         first, last = (_Text(value, self._rich_text, self._font_size) for value in (start, end))
-        if self._scramble_mode != ScrambleMode.None_:
-            alphabet = {ScrambleMode.All: string.ascii_letters+string.digits,
-                        ScrambleMode.Uppercase: string.ascii_uppercase,
-                        ScrambleMode.Lowercase: string.ascii_lowercase,
-                        ScrambleMode.Numerals: string.digits,
-                        ScrambleMode.Custom: self._scramble_chars}[self._scramble_mode]
+        if self._scramble_mode != ScrambleMode.NONE:
+            alphabet = {ScrambleMode.ALL: string.ascii_letters+string.digits,
+                        ScrambleMode.UPPERCASE: string.ascii_uppercase,
+                        ScrambleMode.LOWERCASE: string.ascii_lowercase,
+                        ScrambleMode.NUMERALS: string.digits,
+                        ScrambleMode.CUSTOM: self._scramble_chars}[self._scramble_mode]
             glyphs = TextLayout.split_graphemes(alphabet)
             rng = random.Random(self._seed)
             self._scramble = tuple(rng.choice(glyphs) for _ in range(max(64, len(last)*4)))
@@ -159,12 +164,12 @@ class StringTweener(Tweener):
         factor = min(1.0, max(0.0, self._ease(progress)))
         revealed = min(length, max(0, round(length*factor)))
         prefix = self._start if self._append else ""
-        if self._append and self.loop_type == LoopType.Incremental:
-            prefix += self._end*cycle
+        if self._append:
+            prefix += self._end*self._incremental_cycles(cycle)
         if factor >= 1:
             value = prefix+self._end
-        elif self._scramble_mode != ScrambleMode.None_:
-            offset = floor(progress*self.duration*60) % (len(self._scramble)-length+1)
+        elif self._scramble_mode != ScrambleMode.NONE:
+            offset = floor(progress*self._duration*60) % (len(self._scramble)-length+1)
             value = prefix+self._last.slice(0, revealed)+self._last.scrambled(revealed, self._scramble[offset:offset+length-revealed])
         elif self._append:
             value = prefix+self._last.slice(0, revealed)

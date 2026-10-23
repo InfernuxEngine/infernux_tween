@@ -2,6 +2,8 @@
 from copy import deepcopy
 from functools import lru_cache
 import inspect
+import types
+from typing import Union, get_args, get_origin, get_type_hints
 
 from infernux.components import ComponentRef, FieldType, get_serialized_fields
 from infernux.components.fields import get_raw_field_value
@@ -20,17 +22,37 @@ from infernux.ui.ui_event_entry import UIEventArgument, get_callable_methods, ge
 from infernux_tween.events import TweenCallback
 
 
+def _supported_parameter(annotation, default):
+    if get_origin(annotation) in (Union, types.UnionType):
+        args = [arg for arg in get_args(annotation) if arg is not type(None)]
+        if len(args) != 1:
+            return False
+        annotation = args[0]
+    if annotation is inspect.Parameter.empty:
+        annotation = type(default) if default is not inspect.Parameter.empty else None
+    if annotation in (bool, int, float, str):
+        return True
+    from infernux.components import GameObjectRef, InxComponent
+    from infernux.components.builtin_component import BuiltinComponent
+    from infernux.lib import GameObject
+    return (annotation in (GameObject, GameObjectRef, ComponentRef)
+            or isinstance(annotation, type) and issubclass(annotation, (InxComponent, BuiltinComponent)))
+
+
 @lru_cache(maxsize=128)
 def _cached_methods(component_type, epoch):
     names = []
     for name in get_callable_methods(component_type):
         try:
-            signature = inspect.signature(getattr(component_type, name))
+            method = getattr(component_type, name)
+            signature = inspect.signature(method)
+            hints = get_type_hints(method)
             get_method_parameter_specs(component_type, name)
         except (TypeError, ValueError, NameError):
             continue
-        if not any(p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD)
-                or (p.kind == p.KEYWORD_ONLY and p.default is p.empty) for p in signature.parameters.values()):
+        parameters = [p for p in signature.parameters.values() if p.name not in ('self', 'cls')]
+        if all(p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+               and _supported_parameter(hints.get(p.name, p.annotation), p.default) for p in parameters):
             names.append(name)
     return names
 
@@ -109,7 +131,7 @@ def _entry(ctx, component, field, index, entry, label_width):
 
 def draw_events(ctx, component):
     label_width = max_label_w(ctx, [translate('tween.callback_target'), translate('tween.callback_method')])
-    for name in ('start', 'complete', 'kill', 'rewind'):
+    for name in component._event_names:
         field = 'on_'+name+'_entries'
         ctx.push_id_str(field)
         try:

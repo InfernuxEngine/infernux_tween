@@ -1,83 +1,35 @@
-# 动画补间
+# Tween
 
-添加“Animation / Tween Animation”“Tween Path”或“Tween Visual Manager”，
-可在 Inspector 中配置动画。目标物体为空时使用当前物体；材质通过标准资产选择框指定。
-路径点使用引擎列表控件和 Scene 位置控制柄，拖动通过引擎事务服务记录撤销。
-“动画 / 补间动画”面板支持预览、暂停、继续和停止还原；保存、撤销、切换选择和进入
-Play 也会恢复原始值。预览不发送游戏事件。生命周期管理组件可显式设置启用、禁用时
-的播放/暂停/重播等操作，适用于对象池。
-
-路径使用 `ShortcutExtensions.DOPath(transform, points, seconds, PathType.CatmullRom)`，
-支持直线、Catmull-Rom 和三次贝塞尔。匀速使用 `Ease.Linear`；`SetSpeedBased()`
-将时长参数解释为每秒移动单位，`ForceInit()` 后可查询路径长度。四元数快捷方法使用最短弧旋转。
-
-`SetLink(game_object)` 在物体销毁时清理动画，包括暂停的动画。对象池行为由
-`LinkBehaviour` 选择；序列关联根节点。`WaitFor...` 复用引擎协程，异步版本需要调用方已有的 asyncio 循环。
-
-交互弹簧可使用 `Spring(1, stiffness=200, damping=10)`：交互时调用 `Pull(0.2)`，
-在固定模拟步中调用 `Update(fixed_delta)`。重复拉动保留速度，`Animate(target)` 改变锚点，
-`IsResting()` 可判断是否停止更新。弹簧有独立的动态状态，不混入可任意跳转的时间轴。
-
-使用 `DOTween.To(getter, setter, end_value, duration)` 创建属性补间，使用
-`DOTween.Sequence().Append(tween).Join(other_tween)` 编排序列。参数应在播放或
-加入序列前配置；同一个子动画只能属于一个序列。时间单位为秒。
-
-支持 `SetEase`、`SetDelay`、`SetLoops`、`SetUpdate`、`SetAutoKill` 链式配置；
-通过 `Play`、`Pause`、`Restart`、`Rewind`、`Goto`、`Complete`、`Kill` 控制播放。
-回调在引擎线程执行，手动更新与自动更新相互独立。
-
-`From(value, set_immediately=False, relative=True)` 在调用时固定显式端点，等播放时
-才写入目标；没有指定起点的 `From(set_immediately=False)` 则在播放开始时捕获目标。
-字符串和四元数的相对规则见仓库 README。普通属性补间可以用 `ChangeStartValue`、
-`ChangeEndValue`、`ChangeValues` 修改端点并回到动画起点，保留已经消耗的延时和
-播放／暂停状态。传入新的正时长才替换时长；速度模式下该参数为新速度。
-`ChangeEndValue(value, True)` 捕获当前值作为新起点并保留时长。序列子项忽略这些
-调用；倒放动画回到起点后停止。
-
-`Goto(seconds)` 使用不含首次延时的动画时间。Sequence 的 `SetDelay(seconds)`
-默认在开头加入随循环重复的间隔；传入 `as_prepended_interval_if_sequence=False`
-则只在首次播放前等待。序列回调内暂停会保留该回调所在的位置，`Play()` 从那里继续，
-包括并行和嵌套子动画。根动画播放期间可用 `SetUpdate` 切换时钟；子动画跟随根时钟。
-
-使用 `ShortcutExtensions.DOLocalMove(transform, (80, 20, 0), 0.4)`、
-`DOScale`、`DORotate`、`DOColor`、`DOFade`、`DOSize`、`DOValue` 等快捷方法，
-目标使用引擎现有 Transform、UI、材质、灯光、相机或音频组件。Python 接口
-显式传入目标，不给原生类型动态添加方法。运动学刚体移动通过 Fixed 阶段的
-`move_position` 执行，刚体旋转通过 `move_rotation` 执行。四元数使用最短弧插值，
-欧拉角支持超过一周的旋转。
-
-快捷方法自动设置 target；`DOTween.Pause(target)`、`Restart(target)`、
-`Kill(target)` 可统一控制目标，也可先 `SetId("menu")` 后按 ID 控制。
-Sequence 支持整组缓动、相对值和 Restart/Yoyo 循环；Incremental 仅用于 Tweener。
-
-自定义缓动使用原生 `AnimationCurve`，持续字效之外的 CPU 曲线可用 `EaseCurve`。
-Jump、Punch、Shake、Spiral 可跳转采样；Blendable 位移、缩放、旋转和颜色只叠加自身
-的变化，不覆盖其它动画。作者组件会将运行时动画关联到目标，目标销毁时清理暂停中的动画。
-
-Tween Animation 和 Tween Path 的 Inspector 提供“开始时”“完成时”“终止时”及
-“回到起点时”四组持久回调。用加号添加条目，选择具体的目标组件、公开方法并填写
-位置参数；修改可以撤销/重做，保存后重新打开场景仍然有效。同一物体的同类型组件
-会在选择器中标明序号，删除所绑定的实例不会改选其它实例。不显示无法反射、带可变
-参数或必填关键字参数的方法。编辑器预览不会执行这些回调，也不会执行脚本事件。
-
-字符串补间按引擎字素推进，组合重音和连接的 emoji 不会被从中间切开。
-`ShortcutExtensions.DOText(label, "欢迎回来 世界", 0.8)` 可以逐步显示文字，
-原生颜色、字号和换行标签保持完整；计数器、字号和可见数分别使用
-`DOCounter`、`DOFontSize`、`DOMaxVisibleCharacters`。
-
-已有文字可以按字符批量做几何动画：
+需要 Infernux **0.4.3 热修 4 或更新版本**。
 
 ```python
-from infernux_tween import DOTween, DOTweenTextAnimator
+import infernux_tween as tween
+from infernux import Vector2, Vector3
 
-characters = DOTweenTextAnimator(label)
-sequence = DOTween.Sequence()
-sequence.Join(characters.Range().DOOffset((0, 12), 0.4).From())
-sequence.Join(characters.Range().DOFade(0, 0.4).From())
-sequence.SetLink(label.game_object)
+move = tween.do_local_move(transform, Vector3(80, 20, 0), 0.4)
+move.set_ease(tween.Ease.IN_OUT_SINE)
+tween.sequence().append(move).append_interval(0.1).append_callback(on_finished)
+tween.do_size_delta(image, Vector2(240, 80), 0.3)
 ```
 
-`Character`、`Range`、`Word`、`Line` 使用原生字素索引；偏移使用文字局部坐标，
-Y 正方向向下，旋转单位为度。它使用 Manual 层，可与 Text Animator 的持续字效、
-出入场叠加。同一文字使用一个 Manual 层控制器；`Reset` 或 `Dispose` 还原该层。
-布局改变会终止旧索引动画，因此应在 `DOText` 完成文字修改后再创建字符动画。
+函数采用 snake_case，类采用 PascalCase，枚举成员采用 UPPER_SNAKE_CASE。原生目标作为第一个参数；枚举仍传枚举，字符串端点仍传字符串。颜色使用引擎的 RGBA 列表，不添加另一套包装类型。
+
+`to`、`to_axis`、`to_alpha`、`to_array` 创建有类型的补间。`set_ease` 接受 Ease、原生 AnimationCurve、EaseCurve 或四参数函数 `(time, duration, overshoot_or_amplitude, period)`。`set_options` 根据浮点、向量、颜色、旋转或字符串类型表达不同选项。`set_as` 复制 Tween/TweenParams 的通用设置，不复制目标或类型专用选项。
+
+`from_(is_relative)` 的一个布尔值表示相对；`from_(set_immediately, is_relative)` 的两个布尔值分别表示立即写入、相对。不指定起点且需要延后捕获时，写 `from_(set_immediately=False, is_relative=False)`。指定值的 `from_(value, set_immediately=False, is_relative=True)` 在调用时固定端点，只延迟写入。`change_start_value`、`change_end_value`、`change_values` 的时长参数为 `new_duration`；`goto(seconds)` 不包含开始延时。
+
+在开始播放或插入序列前配置。序列支持嵌套、插入/前置/并行回调、间隔和增量循环。回调里的暂停、跳转、销毁会终止当前调度。实例控制一个补间；模块筛选控制必须传目标或 ID；`*_all` 明确操作全部。`set_link` 关联 GameObject 生命周期，暂停的补间也会清理。
+
+快捷操作覆盖 Transform、Rigidbody、材质、UI、精灵/线条、相机、光照和音频。刚体通过 Fixed 和 move_position/move_rotation 移动。Graphic 淡出修改颜色 alpha，UIGroup 修改 alpha，AudioSource 修改音量。材质命名属性的参数放在 duration 前。路径有局部/世界坐标、朝向、路点回调、跳转与 Gizmo。Jump/Punch/Shake/Spiral 和混合动画复用同一时钟。引擎尚无的材质 UV 变换、文本描边发光、整体 UI Transform 缩放等不会用无效字段冒充；详细边界见仓库 README。
+
+添加「Tween Animation」「Tween Path」「Tween Visual Manager」即可使用原生 Inspector 字段与场景路径手柄。打开「动画 / Tween」进行可恢复预览，保存、撤销、切换选择和进入 Play 都会还原创作值。持久事件使用原生列表、引用与 Undo，精确关联组件实例；不可表达的参数类型不会被伪装成字符串。预览不发送游戏回调。
+
+```python
+characters = tween.TextTweenAnimator(label)
+characters.do_offset_char(0, Vector3(0, 12, 4), 0.4).from_()
+characters.range().do_fade(0, 0.4).from_()
+```
+
+索引采用原生字素，位移、Euler 角和缩放是真正的 Vector3，正 Y 与 Transform 一样向上。逐角偏移保留 XYZ；区间倾斜包含终点。这些操作占用 Manual 层，与 Text Animator 的 Effects、Appearance 层按顺序组合。布局变化会终止旧索引动画；一轮管理器更新只提交一次共享缓冲。`reset`、`dispose` 还原这一层。
+
+插件自行管理更新注册，空组或全部暂停时没有活动更新。Manual 补间只由 `manual_update(scaled_delta, unscaled_delta)` 驱动，独立时钟采用不受缩放的时间。`get_time_scale`、`set_time_scale` 控制默认管理器。Spring 是独立的有状态弹簧辅助类，在自己的模拟时钟中调用 pull、animate 和 update。

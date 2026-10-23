@@ -1,10 +1,11 @@
 from infernux.components import ComponentRef, InxComponent, serialized_field
 from infernux.components.fields import get_raw_field_value
-from infernux.lib import SceneManager
+from infernux.lib import SceneManager, Vector3
 from infernux.ui.ui_event_entry import UIEventArgument
-from infernux_tween import DOTween, Ease
+from infernux_tween import Ease
+import infernux_tween as tween_api
 from infernux_tween.events import TweenCallback
-from runtime.DOTweenAnimation import DOTweenAnimation
+from runtime.TweenAnimation import TweenAnimation
 from test_links import owner
 
 
@@ -19,6 +20,12 @@ class EventReceiver(InxComponent):
 
     def Variadic(self, *amounts):
         self.count += sum(amounts)
+
+    def VectorArgument(self, amount: Vector3):
+        self.count += int(amount.x)
+
+    def AmbiguousArgument(self, amount: int | str):
+        pass
 
     def AddCallback(self):
         self.animation.on_start_entries.append(callback(self, 2))
@@ -35,8 +42,8 @@ def callback(receiver, amount):
 def test_saved_callbacks_bind_the_exact_component_and_fire_once_per_transition(owner):
     _, obj = owner
     first, second = obj.add_component(EventReceiver), obj.add_component(EventReceiver)
-    animation = obj.add_component(DOTweenAnimation)
-    animation.auto_play, animation.ease = False, Ease.Linear
+    animation = obj.add_component(TweenAnimation)
+    animation.auto_play, animation.auto_kill, animation.ease = False, False, Ease.LINEAR
     for name, amount in [('start', 1), ('complete', 10), ('rewind', 100), ('kill', 1000)]:
         saved = callback(second, amount)._serialize()
         restored = TweenCallback._deserialize(saved)
@@ -44,19 +51,25 @@ def test_saved_callbacks_bind_the_exact_component_and_fire_once_per_transition(o
         setattr(animation, 'on_'+name+'_entries', [restored])
     script_events = []
     animation.on_start.add_listener(lambda: script_events.append('start'))
+    for name in ('play', 'update', 'step_complete', 'tween_created'):
+        getattr(animation, 'on_' + name).add_listener(lambda name=name: script_events.append(name))
     SceneManager.instance().play()
-    animation.CreateTween().Play()
-    DOTween.Update(1)
-    animation.DORewind().DOKill()
+    animation.create_tween()
+    animation.do_play()
+    tween_api.update(1)
+    animation.do_rewind()
+    animation.do_kill()
     assert first.count == 0 and second.count == 1111
-    assert script_events == ['start']
+    assert script_events.count('tween_created') == script_events.count('start') == 1
+    assert script_events.count('step_complete') == 1
+    assert 'play' in script_events and 'update' in script_events
     assert animation._persistent_events['start'][0].component_identity == second.component_id
 
 
 def test_persistent_edits_invalidate_bindings_and_blank_entries_do_not_invoke(owner):
     _, obj = owner
     receiver = obj.add_component(EventReceiver)
-    animation = obj.add_component(DOTweenAnimation)
+    animation = obj.add_component(TweenAnimation)
     animation.on_start_entries = [TweenCallback(), callback(receiver, 1)]
     animation._invoke_event('start')
     old = animation._persistent_events['start'][1]
@@ -77,12 +90,12 @@ def test_persistent_preview_uses_no_runtime_events(owner, monkeypatch):
     monkeypatch.setattr(Application, 'is_headless', staticmethod(lambda: True))
     _, obj = owner
     receiver = obj.add_component(EventReceiver)
-    animation = obj.add_component(DOTweenAnimation)
-    for name in ('start', 'complete', 'rewind', 'kill'):
+    animation = obj.add_component(TweenAnimation)
+    for name in animation._event_names:
         setattr(animation, 'on_'+name+'_entries', [callback(receiver, 1)])
     scope = PreviewService().begin('persistent-preview')
-    animation.BeginPreview(scope)
-    animation._preview_manager.ManualUpdate(1, 1)
+    animation.begin_preview(scope)
+    animation._preview_manager.manual_update(1, 1)
     scope.close()
     assert receiver.count == 0 and '_persistent_events' not in animation.__dict__
 
@@ -92,6 +105,7 @@ def test_method_picker_excludes_unbindable_signatures_and_refreshes_after_body_r
     from infernux.engine.runtime_dispatch import publish_runtime_dispatch_epoch
     names = _methods(EventReceiver)
     assert 'Record' in names and 'KeywordOnly' not in names and 'Variadic' not in names
+    assert 'VectorArgument' not in names and 'AmbiguousArgument' not in names
     original = EventReceiver.Record
     try:
         monkeypatch.setattr(EventReceiver, 'Record', EventReceiver.KeywordOnly)
@@ -108,7 +122,7 @@ def test_method_picker_excludes_unbindable_signatures_and_refreshes_after_body_r
 def test_persistent_callback_membership_is_fixed_for_each_invocation(owner):
     _, obj = owner
     receiver = obj.add_component(EventReceiver)
-    receiver.animation = animation = obj.add_component(DOTweenAnimation)
+    receiver.animation = animation = obj.add_component(TweenAnimation)
     animation.on_start_entries = [TweenCallback(target=ComponentRef(receiver), method_name='AddCallback'), callback(receiver, 1)]
     animation._invoke_event('start')
     assert receiver.count == 1 and len(animation.on_start_entries) == 3

@@ -23,7 +23,7 @@ def _waypoint_handle(ctx, component, index):
 
     def changed(value):
         points = list(component.waypoints)
-        points[index] = component.WaypointFromWorld(value)
+        points[index] = component.waypoint_from_world(value)
         component.waypoints = points
 
     def commit(_value):
@@ -36,19 +36,36 @@ def _waypoint_handle(ctx, component, index):
         if component.is_valid:
             component.waypoints = list(before)
 
-    ctx.position(f"path-{component.component_id}-{index}", component.WorldWaypoint(index), changed,
+    ctx.position(f"path-{component.component_id}-{index}", component.world_waypoint(index), changed,
                  on_begin=begin, on_commit=commit, on_cancel=cancel)
 
 
 def _draw_paths(ctx):
+    if SceneManager.instance().is_playing():
+        from infernux_tween import PathTween, _default_manager
+        previous = Gizmos.color
+        try:
+            for path in _default_manager._matching():
+                if not isinstance(path, PathTween) or path._path is None:
+                    continue
+                points = path.path_get_draw_points()
+                transform = path._path_target.transform if path._body else path._path_target
+                if path.local and transform.parent is not None:
+                    points = [transform.parent.transform_point(point) for point in points]
+                Gizmos.color = tuple(path.gizmo_color[:3])
+                indices = np.column_stack((np.arange(len(points)-1), np.arange(1, len(points))))
+                Gizmos.draw_lines(np.asarray([tuple(point) for point in points], dtype=np.float32), indices)
+        finally:
+            Gizmos.color = previous
+        return
     for identifier in SelectionService.instance().scene_object_ids():
         obj = SceneManager.instance().find_runtime_object_by_id(identifier)
         if obj is None:
             continue
-        for component in obj.get_components("DOTweenPath"):
+        for component in obj.get_components("TweenPath"):
             if component._preview_manager is not None:
                 continue
-            points = component.DrawPoints()
+            points = component.draw_points()
             if len(points) > 1:
                 previous = Gizmos.color
                 Gizmos.color = (0.95, 0.7, 0.3)
@@ -65,12 +82,11 @@ class TweenTools(InxPreload):
     def preload(self, context):
         global _context
         _context = context
-        registration = register_handle_provider("infernux.tween.paths", _draw_paths,
-                                                enabled=lambda: not SceneManager.instance().is_playing())
+        registration = register_handle_provider("infernux.tween.paths", _draw_paths)
         context.add_cleanup(registration.close)
         from infernux.engine.ui.inspector_components import register_py_component_extra_renderer
         from .TweenEvents import draw_events, _cached_methods
-        for name in ('DOTweenAnimation', 'DOTweenPath'):
+        for name in ('TweenAnimation', 'TweenPath'):
             register_py_component_extra_renderer(name, draw_events)
             context.add_cleanup(lambda name=name: register_py_component_extra_renderer(name, None))
         context.add_cleanup(_cached_methods.cache_clear)
@@ -118,15 +134,15 @@ class TweenPanel(EditorPanel):
         scope = _context.create_preview()
         try:
             for component in self._components:
-                component.BeginPreview(scope)
+                component.begin_preview(scope)
         except BaseException:
             scope.close()
             raise
         self._scope = scope
 
     def on_render_content(self, ctx):
-        from infernux_tween import DOTween
-        diagnostics = DOTween.GetDiagnostics()
+        from infernux_tween import _default_manager
+        diagnostics = _default_manager.get_diagnostics()
         ctx.label(translate("tween.diagnostics").format(**diagnostics))
         ctx.label(" / ".join(translate("tween.clock."+phase)+": "+str(counts["playing"])
                              for phase, counts in diagnostics["phases"].items()))
@@ -150,8 +166,8 @@ class TweenPanel(EditorPanel):
         if self._scope is not None and not self._scope.closed:
             if ctx.button(translate("tween.pause")):
                 for component in self._components:
-                    component.DOPause()
+                    component.do_pause()
             ctx.same_line()
             if ctx.button(translate("tween.play")):
                 for component in self._components:
-                    component.DOPlay()
+                    component.do_play()

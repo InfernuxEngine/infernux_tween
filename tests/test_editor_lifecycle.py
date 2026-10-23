@@ -3,7 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from infernux.engine.play_mode import PlayModeState
-from infernux_tween import DOTween
+import infernux_tween as tween
 
 
 def test_editor_stop_clears_global_tweens_and_unload_releases_the_listener():
@@ -16,12 +16,12 @@ def test_editor_stop_clears_global_tweens_and_unload_releases_the_listener():
     context = SimpleNamespace(engine=SimpleNamespace(get_play_mode_manager=lambda: manager), add_cleanup=cleanups.append)
     try:
         module.TweenEditorLifecycle().preload(context)
-        tween = DOTween.To(lambda: 0, lambda value: None, 1, 1)
+        active = tween.to(lambda: 0, lambda value: None, 1, 1)
         listeners[0](SimpleNamespace(new_state=PlayModeState.PAUSED))
-        assert tween.IsActive()
+        assert active.is_active()
         listeners[0](SimpleNamespace(new_state=PlayModeState.RESTORING))
-        assert not tween.IsActive() and not any(DOTween._running.values())
+        assert not active.is_active() and not tween.total_active_tweens()
         cleanups[0]()
         assert not listeners
     finally:
-        DOTween.Clear()
+        tween.clear()

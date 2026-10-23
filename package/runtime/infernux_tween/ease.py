@@ -1,41 +1,46 @@
-"""Analytic easing curves; custom callables use the same normalized input."""
+"""Analytic curves compiled once for normalized sampling."""
 
 from enum import Enum
-from math import cos, pi, sin, sqrt
+from math import asin, ceil, cos, pi, sin, sqrt
 
 
-class Ease(str, Enum):
-    Linear = "Linear"
-    InSine = "InSine"
-    OutSine = "OutSine"
-    InOutSine = "InOutSine"
-    InQuad = "InQuad"
-    OutQuad = "OutQuad"
-    InOutQuad = "InOutQuad"
-    InCubic = "InCubic"
-    OutCubic = "OutCubic"
-    InOutCubic = "InOutCubic"
-    InQuart = "InQuart"
-    OutQuart = "OutQuart"
-    InOutQuart = "InOutQuart"
-    InQuint = "InQuint"
-    OutQuint = "OutQuint"
-    InOutQuint = "InOutQuint"
-    InExpo = "InExpo"
-    OutExpo = "OutExpo"
-    InOutExpo = "InOutExpo"
-    InCirc = "InCirc"
-    OutCirc = "OutCirc"
-    InOutCirc = "InOutCirc"
-    InBack = "InBack"
-    OutBack = "OutBack"
-    InOutBack = "InOutBack"
-    InElastic = "InElastic"
-    OutElastic = "OutElastic"
-    InOutElastic = "InOutElastic"
-    InBounce = "InBounce"
-    OutBounce = "OutBounce"
-    InOutBounce = "InOutBounce"
+class Ease(Enum):
+    UNSET = "Unset"
+    LINEAR = "Linear"
+    IN_SINE = "InSine"
+    OUT_SINE = "OutSine"
+    IN_OUT_SINE = "InOutSine"
+    IN_QUAD = "InQuad"
+    OUT_QUAD = "OutQuad"
+    IN_OUT_QUAD = "InOutQuad"
+    IN_CUBIC = "InCubic"
+    OUT_CUBIC = "OutCubic"
+    IN_OUT_CUBIC = "InOutCubic"
+    IN_QUART = "InQuart"
+    OUT_QUART = "OutQuart"
+    IN_OUT_QUART = "InOutQuart"
+    IN_QUINT = "InQuint"
+    OUT_QUINT = "OutQuint"
+    IN_OUT_QUINT = "InOutQuint"
+    IN_EXPO = "InExpo"
+    OUT_EXPO = "OutExpo"
+    IN_OUT_EXPO = "InOutExpo"
+    IN_CIRC = "InCirc"
+    OUT_CIRC = "OutCirc"
+    IN_OUT_CIRC = "InOutCirc"
+    IN_BACK = "InBack"
+    OUT_BACK = "OutBack"
+    IN_OUT_BACK = "InOutBack"
+    IN_ELASTIC = "InElastic"
+    OUT_ELASTIC = "OutElastic"
+    IN_OUT_ELASTIC = "InOutElastic"
+    IN_BOUNCE = "InBounce"
+    OUT_BOUNCE = "OutBounce"
+    IN_OUT_BOUNCE = "InOutBounce"
+    FLASH = "Flash"
+    IN_FLASH = "InFlash"
+    OUT_FLASH = "OutFlash"
+    IN_OUT_FLASH = "InOutFlash"
 
 
 def _bounce(t):
@@ -51,25 +56,79 @@ def _bounce(t):
     return 7.5625 * t * t + 0.984375
 
 
-def resolve_ease(ease):
-    if callable(ease):
+def _flash(t, count, weight, shape):
+    step = ceil(t * count)
+    forward = step % 2 != 0
+    phase = t * count - (step - 1)
+    if not forward:
+        phase = 1 - phase
+    if shape == "InFlash":
+        phase *= phase
+    elif shape == "OutFlash":
+        phase = phase * (2 - phase)
+    elif shape == "InOutFlash":
+        phase = 2 * phase * phase if phase < 0.5 else 1 - 2 * (1 - phase) ** 2
+    if forward == (int(count) % 2 == 0):
+        step += 1
+    correction = 0.0
+    if weight > 0:
+        tail = count - int(count)
+        if int(count) % 2:
+            tail = 1 - tail
+        correction = tail * step / count
+        weighted = phase * (count - step) / count
+    elif weight < 0:
+        weight = -weight
+        weighted = phase * step / count
+    else:
+        weighted = 0.0
+    return min(1.0, phase + (weighted - phase) * weight + correction)
+
+
+def resolve_ease(ease, overshoot_or_amplitude=1.70158, period=0.0, duration=None):
+    from infernux.graph.ramp import AnimationCurve
+    from .curve import EaseCurve
+    if isinstance(ease, AnimationCurve):
+        return EaseCurve(ease.keys, ease.pre_wrap, ease.post_wrap)
+    if isinstance(ease, EaseCurve):
         return ease
-    if not isinstance(ease, str):
-        from infernux.graph.ramp import AnimationCurve
-        from .curve import EaseCurve
-        if isinstance(ease, AnimationCurve):
-            return EaseCurve(ease.keys, ease.pre_wrap, ease.post_wrap)
-    name = Ease(ease).value
+    if callable(ease):
+        clock = duration or (lambda: 1.0)
+        def custom(t):
+            seconds = clock()
+            return ease(t * seconds, seconds, overshoot_or_amplitude, period)
+        return custom
+    if not isinstance(ease, Ease):
+        raise TypeError("ease must be Ease, AnimationCurve or a four-argument function")
+    name = ease.value
+    if name == "Unset":
+        name = "OutQuad"
     if name == "Linear":
         return lambda t: t
+    if name.endswith("Flash"):
+        if overshoot_or_amplitude <= 0:
+            raise ValueError("Flash count must be positive")
+        return lambda t: _flash(t, overshoot_or_amplitude, period, name)
     if name == "InOutBack":
-        overshoot = 1.70158 * 1.525
+        overshoot = overshoot_or_amplitude * 1.525
         return lambda t: ((2 * t) ** 2 * ((overshoot + 1) * 2 * t - overshoot) / 2
                           if t < 0.5 else ((2 * t - 2) ** 2 * ((overshoot + 1) * (2 * t - 2) + overshoot) + 2) / 2)
-    if name == "InOutElastic":
-        return lambda t: (t if t in (0, 1) else
-                          -(2 ** (20 * t - 10) * sin((20 * t - 11.125) * 2 * pi / 4.5)) / 2 if t < 0.5 else
-                          2 ** (-20 * t + 10) * sin((20 * t - 11.125) * 2 * pi / 4.5) / 2 + 1)
+    if name.endswith("Elastic"):
+        amplitude = max(1.0, overshoot_or_amplitude)
+        def elastic(t):
+            if t in (0, 1):
+                return t
+            seconds = duration() if duration is not None else 1.0
+            wave = period / seconds if period else (0.45 if name == "InOutElastic" else 0.3)
+            shift = wave / (2 * pi) * asin(1 / amplitude)
+            if name == "InElastic":
+                return -amplitude * 2 ** (10 * (t - 1)) * sin((t - 1 - shift) * 2 * pi / wave)
+            if name == "OutElastic":
+                return amplitude * 2 ** (-10 * t) * sin((t - shift) * 2 * pi / wave) + 1
+            t = 2 * t - 1
+            return (-0.5 * amplitude * 2 ** (10 * t) * sin((t - shift) * 2 * pi / wave)
+                    if t < 0 else amplitude * 2 ** (-10 * t) * sin((t - shift) * 2 * pi / wave) * 0.5 + 1)
+        return elastic
     direction, family = next((p, name[len(p):]) for p in ("InOut", "In", "Out") if name.startswith(p))
     if family in {"Quad", "Cubic", "Quart", "Quint"}:
         power = {"Quad": 2, "Cubic": 3, "Quart": 4, "Quint": 5}[family]
@@ -81,9 +140,7 @@ def resolve_ease(ease):
     elif family == "Circ":
         inward = lambda t: 1 - sqrt(max(0.0, 1 - t * t))
     elif family == "Back":
-        inward = lambda t: 2.70158 * t ** 3 - 1.70158 * t * t
-    elif family == "Elastic":
-        inward = lambda t: t if t in (0, 1) else -(2 ** (10 * t - 10)) * sin((t * 10 - 10.75) * 2 * pi / 3)
+        inward = lambda t: (overshoot_or_amplitude + 1) * t ** 3 - overshoot_or_amplitude * t * t
     else:
         inward = lambda t: 1 - _bounce(1 - t)
     if direction == "In":

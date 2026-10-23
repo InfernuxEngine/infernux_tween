@@ -19,7 +19,26 @@ def test_cpu_curve_accepts_many_keys_and_engine_curve_is_a_set_ease_overload():
     assert curve(0.317) == pytest.approx(0.317**2)
     manager, value = TweenManager(), [0.0]
     authored = AnimationCurve((Keyframe(0, 0), Keyframe(1, 1)))
-    manager.To(lambda: value[0], lambda x: value.__setitem__(0, x), 10.0, 1).SetEase(authored)
-    manager.Update(0.25)
+    manager.to(lambda: value[0], lambda x: value.__setitem__(0, x), 10.0, 1).set_ease(authored)
+    manager.update(0.25)
     assert value[0] == pytest.approx(1.5625)
-    manager.Clear()
+    manager.clear()
+
+
+def test_ease_overloads_keep_real_time_parameters_and_flash_oscillations():
+    from infernux_tween import Ease
+    manager, calls, value = TweenManager(), [], [0.0]
+    manager.default_ease_overshoot_or_amplitude, manager.default_ease_period = 2.5, 0.4
+    def custom(time, duration, amplitude, period):
+        calls.append((time, duration, amplitude, period))
+        return time/duration
+    tween = manager.to(lambda: value[0], lambda v: value.__setitem__(0, v), 12., 3).set_ease(custom)
+    manager.update(1.5)
+    assert value[0] == 6 and calls == [(1.5, 3, 2.5, 0.4)]
+    tween.set_ease(Ease.OUT_BACK, overshoot=2.5).goto(1.5)
+    assert value[0] == pytest.approx(14.25)
+    tween.set_ease(Ease.FLASH, 4., 0.)
+    assert [tween._ease(time) for time in (0, 0.25, 0.5, 0.75, 1)] == [0, 1, 0, 1, 0]
+    with pytest.raises(TypeError):
+        tween.set_ease('Linear')
+    manager.clear()

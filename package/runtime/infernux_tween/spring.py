@@ -10,19 +10,19 @@ class Spring:
         self.velocity = 0.0
         self.stiffness, self.damping = float(stiffness), float(damping)
 
-    def Pull(self, amount):
+    def pull(self, amount):
         self.value += amount
         return self
 
-    def Animate(self, target):
+    def animate(self, target):
         self.target = target
         return self
 
-    def Update(self, delta):
+    def update(self, delta):
         acceleration = -self.stiffness * (self.value - self.target) - self.damping * self.velocity
         self.velocity += acceleration * delta
         self.value += self.velocity * delta
         return self.value
 
-    def IsResting(self, tolerance=0.00001):
+    def is_resting(self, tolerance=0.00001):
         return abs(self.value - self.target) <= tolerance and abs(self.velocity) <= tolerance
