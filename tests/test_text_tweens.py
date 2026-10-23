@@ -87,6 +87,20 @@ def test_character_relative_from_speed_and_killed_sequence_child(text):
     sequence.Kill()
 
 
+def test_character_group_explicit_from_and_value_changes_keep_one_shared_buffer(text):
+    target, uploads, _ = text
+    animator = DOTweenTextAnimator(target)
+    tween = animator.Range(0, 2).DOScale(2, 1).From(0.25, False).SetEase(Ease.Linear).SetAutoKill(False)
+    assert np.all(animator.buffer.scales == 1)
+    tween.Goto(0.5)
+    assert np.all(animator.buffer.scales[:2] == 1.125) and np.all(animator.buffer.scales[2:] == 1)
+    tween.ChangeValues(0.5, 1.5)
+    assert np.all(animator.buffer.scales[:2] == 0.5)
+    tween.Goto(0.5)
+    assert np.all(animator.buffer.scales == 1)
+    assert set(uploads) == {TextGeometryLayer.Manual}
+
+
 def test_layout_revision_retires_old_indices_and_preserves_other_layers(text):
     target, uploads, resets = text
     animator = DOTweenTextAnimator(target)

@@ -74,3 +74,17 @@ def test_quaternion_rotation_from_and_speed_use_shortest_arc(target):
     assert quatf.angle(target.local_rotation, end) < 0.01
     DOTween.Update(1)
     assert quatf.angle(target.local_rotation, quatf.identity()) < 0.01
+
+
+def test_explicit_quaternion_from_captures_relative_rotation_in_target_order(target):
+    current, first, end = quatf.euler(30, 0, 0), quatf.euler(0, 40, 0), quatf.euler(0, 0, 70)
+    target.local_rotation = current
+    tween = S.DOLocalRotateQuaternion(target, end, 1).From(first, False, True).SetAutoKill(False)
+    assert quatf.angle(target.local_rotation, current) < 0.01
+    target.local_rotation = quatf.identity()
+    tween.Goto(0)
+    assert quatf.angle(target.local_rotation, current * first) < 0.01
+    tween.Complete()
+    assert quatf.angle(target.local_rotation, current * end) < 0.01
+    tween.ChangeValues(first, end).Complete()
+    assert quatf.angle(target.local_rotation, end) < 0.01

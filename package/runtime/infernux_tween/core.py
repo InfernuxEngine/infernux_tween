@@ -5,6 +5,8 @@ from math import floor, inf, isfinite, sqrt
 
 from .ease import Ease, resolve_ease
 
+_UNSET = object()
+
 
 class LoopType(str, Enum):
     Restart = "Restart"
@@ -407,6 +409,7 @@ class Tweener(Tween):
         self._start = None
         self._relative = False
         self._from = False
+        self._from_value = self._manual_start = _UNSET
         self._ease = resolve_ease(Ease.OutQuad)
         self._speed_based = False
         self._constraint = AxisConstraint.None_
@@ -438,37 +441,94 @@ class Tweener(Tween):
 
     def ForceInit(self):
         self._initialize()
+        if self._speed_based and not self._locked:
+            self.duration = self._distance() / self.duration
         return super().ForceInit()
 
-    def From(self, relative=False):
+    def From(self, from_value=_UNSET, set_immediately=True, relative=False):
         self._configure()
+        if isinstance(from_value, bool):
+            relative, from_value = from_value, _UNSET
         self._from, self._relative = True, bool(relative)
-        self._initialize()
-        self._setter(self._start)
+        self._from_value = from_value
+        if set_immediately or from_value is not _UNSET:
+            self._initialize()
+        if set_immediately:
+            self._setter(self._start)
         return self
 
-    def _initialize(self):
-        if self._start is not None:
-            return
-        start, end = self._getter(), self._end
-        self._integer = type(start) is int
-        self._sequence_value = isinstance(start, (tuple, list))
+    def _relative_value(self, current, value):
+        return type(current)(a+b for a, b in zip(current, value, strict=True)) if isinstance(current, (tuple, list)) else current+value
+
+    def _capture_values(self):
+        current, end = self._getter(), self._end
+        self._integer = type(current) is int
+        self._sequence_value = isinstance(current, (tuple, list))
+        self._value_type = type(current)
+        start = current if self._manual_start is _UNSET else self._manual_start
+        if self._from:
+            if self._from_value is _UNSET:
+                start, end = end, start
+            else:
+                start = self._from_value
+            if self._relative:
+                start = self._relative_value(current, start)
+                if self._from_value is not _UNSET:
+                    end = self._relative_value(current, end)
+        return start, end
+
+    def _set_values(self, start, end):
         if self._sequence_value:
-            self._value_type = type(start)
             start, end = tuple(start), tuple(end)
             if len(start) != len(end):
                 raise ValueError("Tween endpoints must have the same dimensions")
-            if self._relative:
-                end = tuple(a + b for a, b in zip(start, end))
-        elif self._relative:
-            end = start + end
-        if self._from:
-            start, end = end, start
         self._start, self._end = start, end
         self._delta = tuple(b - a for a, b in zip(start, end)) if self._sequence_value else end - start
-        if self._speed_based:
-            distance = sqrt(sum(float(item)**2 for item in self._delta)) if self._sequence_value or hasattr(self._delta, "__iter__") else abs(self._delta)
-            self.duration = distance / self.duration
+
+    def _initialize(self):
+        if self._start is None:
+            start, end = self._capture_values()
+            if self._relative and not self._from:
+                end = self._relative_value(start, end)
+            self._set_values(start, end)
+
+    def _distance(self):
+        return sqrt(sum(float(item)**2 for item in self._delta)) if self._sequence_value or hasattr(self._delta, "__iter__") else abs(self._delta)
+
+    def ChangeStartValue(self, new_start_value, duration=-1):
+        return self._change_values(start=new_start_value, duration=duration)
+
+    def ChangeEndValue(self, new_end_value, duration=-1, snap_start_value=False):
+        if isinstance(duration, bool):
+            duration, snap_start_value = -1, duration
+        return self._change_values(end=new_end_value, duration=duration, snap_start=snap_start_value)
+
+    def ChangeValues(self, new_start_value, new_end_value, duration=-1):
+        return self._change_values(start=new_start_value, end=new_end_value, duration=duration)
+
+    def _change_values(self, *, start=_UNSET, end=_UNSET, duration=-1, snap_start=False):
+        if not self.active or self._parent is not None:
+            return self
+        if end is not _UNSET:
+            self._relative = False
+            if start is not _UNSET:
+                self._from = False
+        if self._start is None:
+            self._manual_start = start
+            if end is not _UNSET:
+                self._end = end
+        else:
+            first = self._getter() if snap_start and self._locked else self._start
+            self._set_values(first if start is _UNSET else start, self._end if end is _UNSET else end)
+        if duration > 0:
+            self.duration = self._distance()/duration if self._speed_based and self._locked else float(duration)
+        self.ForceInit()
+        self._seek_serial += 1
+        if self._seek(min(self.position, self.delay), self.position, False) is False:
+            return self
+        if self._backwards:
+            self.Pause()
+        return self
 
     def _apply(self, progress, cycle, previous, callbacks):
         self._initialize()

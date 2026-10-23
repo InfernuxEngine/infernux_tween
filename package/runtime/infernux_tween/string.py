@@ -7,7 +7,7 @@ import string
 
 from infernux.lib import TextLayout
 
-from .core import LoopType, Tweener
+from .core import LoopType, Tweener, _UNSET
 
 
 class ScrambleMode(str, Enum):
@@ -121,15 +121,24 @@ class StringTweener(Tweener):
         start, end = self._getter(), self._end
         if not isinstance(start, str):
             raise TypeError("String tween getter must return str")
-        self._append = self._relative and not self._from
+        if self._manual_start is not _UNSET:
+            start = self._manual_start
+        if self._from:
+            if self._from_value is _UNSET:
+                start, end = end, start
+            else:
+                start = self._from_value+start if self._relative else self._from_value
+        self._set_values(start, end)
         if self.loop_type == LoopType.Incremental and not self._append:
             raise ValueError("Incremental string loops require SetRelative()")
-        if self._from:
-            start, end = (start+end if self._relative else end), start
+
+    def _set_values(self, start, end):
+        self._append = self._relative and not self._from
         self._prepare(start, end)
         self._start, self._end = start, end
-        if self._speed_based:
-            self.duration = len(self._last)/self.duration
+
+    def _distance(self):
+        return len(self._last)
 
     def _prepare(self, start, end):
         first, last = (_Text(value, self._rich_text, self._font_size) for value in (start, end))

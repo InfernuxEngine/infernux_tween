@@ -54,6 +54,25 @@ spherical interpolation; Euler rotation supports explicit full turns.
 | Material float property | Use `Tween.DOFloat(material, end_value, property_name, seconds)`. |
 | UI transform shortcuts | Use native position, `DOSize` and UIGroup opacity; there is no separate RectTransform wrapper. |
 
+`From()` starts at the supplied end value and returns to the captured target value.
+`From(value, set_immediately=False, relative=True)` gives an explicit starting
+value and delays the first write; relative endpoints are captured when From is
+called, even if playback has a delay. Scalar/vector endpoints are both offset
+by the current value; quaternion endpoints use `current * endpoint`. For strings,
+explicit relative From uses `from + current` as the start and retains the supplied
+end text; boolean string From swaps the original end and current text.
+Without an explicit value, `From(set_immediately=False)` captures the target at
+playback startup instead.
+
+Regular value tweeners support `ChangeStartValue(value, duration=-1)`,
+`ChangeEndValue(value, duration=-1, snap_start_value=False)` and
+`ChangeValues(start, end, duration=-1)`. They rewind the animation without
+replaying consumed delay or Start/Play events. Playing timelines continue; paused
+timelines stay paused, and backwards playback stops at the new beginning. A new
+positive duration replaces the duration (or speed for speed-based tweeners);
+otherwise the effective duration stays unchanged. Sequence children ignore these
+methods. Pass complete native vector/rotation values to target shortcuts.
+
 Add **Animation / Tween Animation**, **Tween Path** or **Tween Visual Manager**
 to author animation in Inspector. Empty Target means the owning object; material
 targets use the standard material asset field. Animation components expose

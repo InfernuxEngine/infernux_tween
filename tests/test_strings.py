@@ -69,6 +69,22 @@ def test_relative_incremental_sequence_and_repeatable_scramble_seek():
         manager.To(lambda: "", lambda text: None, "x", 1).SetOptions(True, ScrambleMode.Custom)
 
 
+def test_explicit_string_from_preserves_its_type_specific_relative_order_and_changed_endpoints():
+    manager, value = TweenManager(), ["C"]
+    tween = manager.To(lambda: value[0], lambda text: value.__setitem__(0, text), "E", 2)
+    tween.From("F", set_immediately=False, relative=True).SetSpeedBased().SetAutoKill(False)
+    assert value[0] == "C"
+    tween.Goto(0)
+    assert value[0] == "FC" and tween.Duration() == 0.5
+    tween.ChangeValues("新起点", "中文目标", 2).Complete()
+    assert value[0] == "中文目标" and tween.Duration() == 2
+    value[0] = "C"
+    boolean = manager.To(lambda: value[0], lambda text: value.__setitem__(0, text), "E", 1).From(True)
+    assert value[0] == "E"
+    boolean.Complete()
+    assert value[0] == "C"
+
+
 def test_native_ui_text_shortcuts_use_integer_counts_and_explicit_rich_text(monkeypatch):
     from types import SimpleNamespace
     from infernux.ui import UIText

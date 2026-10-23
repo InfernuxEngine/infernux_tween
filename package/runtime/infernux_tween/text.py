@@ -24,20 +24,14 @@ class _CharacterTween(Tweener):
         else:
             manager._defer_commit(animator.Apply)
 
-    def _initialize(self):
-        if self._start is not None:
-            return
-        start = self._getter()
-        end = np.broadcast_to(np.asarray(self._end, dtype=start.dtype), start.shape).copy()
-        if self._relative:
-            end += start
-        if self._from:
-            start, end = end, start
+    def _set_values(self, start, end):
+        view = self._animator._views[self._channel][self._selection]
+        start, end = (np.broadcast_to(np.asarray(value, dtype=view.dtype), view.shape).copy() for value in (start, end))
         self._start, self._end, self._delta = start, end, end-start
-        if self._speed_based:
-            distance = np.abs(self._delta) if self._channel in ("rotations", "skews", "alphas") else np.linalg.norm(self._delta, axis=-1)
-            distance = np.max(distance, initial=0)
-            self.duration = float(distance)/self.duration
+
+    def _distance(self):
+        distance = np.abs(self._delta) if self._channel in ("rotations", "skews", "alphas") else np.linalg.norm(self._delta, axis=-1)
+        return float(np.max(distance, initial=0))
 
     def _apply(self, progress, cycle, previous, callbacks):
         self._initialize()

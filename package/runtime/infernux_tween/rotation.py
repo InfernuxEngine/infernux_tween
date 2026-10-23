@@ -11,17 +11,14 @@ class RotateMode(str, Enum):
 
 
 class QuaternionTweener(Tweener):
-    def _initialize(self):
-        if self._start is not None:
-            return
-        start, end = self._getter().normalized, self._end.normalized
-        if self._relative:
-            end = start * end
-        if self._from:
-            start, end = end, start
-        self._start, self._end = start, end
-        if self._speed_based:
-            self.duration = quatf.angle(start, end) / self.duration
+    def _relative_value(self, current, value):
+        return current * value
+
+    def _set_values(self, start, end):
+        self._start, self._end = start.normalized, end.normalized
+
+    def _distance(self):
+        return quatf.angle(self._start, self._end)
 
     def _apply(self, progress, cycle, previous, callbacks):
         self._initialize()

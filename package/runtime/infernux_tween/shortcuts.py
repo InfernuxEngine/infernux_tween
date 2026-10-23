@@ -85,15 +85,10 @@ class _EulerTweener(Tweener):
                              _vector(to), duration)
         self.mode = RotateMode(mode)
 
-    def _initialize(self):
-        if self._start is not None:
-            return
-        speed = self.duration if self._speed_based else None
-        super()._initialize()
+    def _set_values(self, start, end):
+        super()._set_values(start, end)
         if self.mode == RotateMode.Fast:
             self._delta = Vector3(*((self._delta[i] + 180) % 360 - 180 for i in range(3)))
-            if speed is not None:
-                self.duration = self._delta.magnitude / speed
 
 
 def DOMove(target, to, duration, snapping=False):
