@@ -2,7 +2,7 @@ import pytest
 
 from infernux.components import FieldType, get_serialized_fields
 from infernux.engine.interaction.previews import PreviewService
-from infernux.lib import Vector3
+from infernux.lib import SceneManager, Vector3
 from infernux.ui import UIImage
 from infernux_tween import DOTween, Ease, LoopType
 from runtime.TweenAuthoring import TweenAuthoring
@@ -20,6 +20,7 @@ def test_component_is_idle_in_edit_mode_and_controls_the_native_target(owner):
     animation.end_vector = (4, 0, 0)
     completed = []
     animation.on_complete.add_listener(lambda: completed.append(True))
+    SceneManager.instance().play()
     tween = animation.CreateTween()
     assert animation.GetTweens() == [tween] and not tween.IsPlaying()
     animation.DOPlay()
@@ -106,15 +107,14 @@ def test_preview_is_local_to_its_scope_and_restores_pose_and_runtime_state(owner
     assert camera.background_color == pytest.approx(background)
 
 
-def test_visual_manager_handles_native_pool_activation_without_idle_updates(owner, monkeypatch):
-    from types import SimpleNamespace
-    import runtime.DOTweenVisualManager as module
-    monkeypatch.setattr(module, 'SceneManager', SimpleNamespace(instance=lambda: SimpleNamespace(is_playing=lambda: True)))
+def test_visual_manager_handles_native_pool_activation_without_idle_updates(owner):
     _, obj = owner
     animation = obj.add_component(DOTweenAnimation)
     animation.end_vector, animation.ease = (4, 0, 0), Ease.Linear
     manager = obj.add_component(DOTweenVisualManager)
     assert manager.on_enable_action == ActivationAction.Restart
+    assert animation.GetTween() is None
+    SceneManager.instance().play()
     DOTween.Update(0.25)
     assert obj.transform.local_position.x == 1
     obj.active = False
@@ -142,14 +142,12 @@ def test_rigidbody_euler_rotation_uses_move_rotation_in_fixed_clock(owner, monke
     tween.Kill()
 
 
-def test_external_authored_target_destruction_retires_a_paused_tween(owner, monkeypatch):
-    from types import SimpleNamespace
-    import runtime.TweenAuthoring as module
+def test_external_authored_target_destruction_retires_a_paused_tween(owner):
     scene, obj = owner
     target = scene.create_game_object('Separate target')
     animation = obj.add_component(DOTweenAnimation)
     animation.target, animation.auto_play = target, False
-    monkeypatch.setattr(module, 'SceneManager', SimpleNamespace(instance=lambda: SimpleNamespace(is_playing=lambda: True)))
+    SceneManager.instance().play()
     tween = animation.CreateTween()
     assert tween.IsActive() and not tween.IsPlaying()
     scene.destroy_game_object(target)

@@ -2,7 +2,7 @@ import pytest
 
 from infernux.lib import SceneManager
 from infernux.components._component_lifecycle import RuntimeExecutionScheduler
-from infernux_tween import Ease, LinkBehaviour, TweenManager
+from infernux_tween import DOTween, Ease, LinkBehaviour, TweenManager
 from infernux_tween.link import TweenLink
 
 
@@ -20,15 +20,20 @@ def owner():
     scheduler.bind_native_bridge(manager)
     scene = manager.create_scene("Tween link lifecycle")
     obj = scene.create_game_object("Pooled owner")
-    yield scene, obj
-    manager.unload_scene(scene)
-    manager.clear_runtime_lifecycle_callbacks()
-    scheduler.clear()
-    scheduler.unbind_native_bridge()
+    try:
+        yield scene, obj
+    finally:
+        DOTween.Clear()
+        manager.unload_scene(scene)
+        manager.stop()
+        manager.clear_runtime_lifecycle_callbacks()
+        scheduler.clear()
+        scheduler.unbind_native_bridge()
 
 
 def test_paused_tween_is_killed_by_native_owner_destruction_without_an_update(owner):
     scene, obj = owner
+    SceneManager.instance().play()
     manager = TweenManager()
     tween = manager.To(lambda: 0.0, lambda value: None, 10, 1).Pause().SetLink(obj)
     assert not manager.TotalPlayingTweens()
@@ -39,15 +44,16 @@ def test_paused_tween_is_killed_by_native_owner_destruction_without_an_update(ow
 
 def test_pool_link_pauses_resumes_and_root_sequence_owns_its_children(owner):
     _, obj = owner
+    SceneManager.instance().play()
     manager, value = TweenManager(), [0.0]
     tween = manager.To(lambda: value[0], lambda item: value.__setitem__(0, item), 10.0, 1).SetEase(Ease.Linear)
     tween.SetLink(obj, LinkBehaviour.PauseOnDisablePlayOnEnable)
     link = obj.get_component(TweenLink)
     manager.Update(0.25)
-    link.on_disable()
+    obj.active = False
     manager.Update(3)
     assert value[0] == 2.5 and not tween.IsPlaying()
-    link.on_enable()
+    obj.active = True
     manager.Update(0.25)
     assert value[0] == 5
     sequence = manager.Sequence()

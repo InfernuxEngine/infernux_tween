@@ -1,7 +1,7 @@
 import pytest
 
 from infernux.lib import SceneManager, Vector3, quatf
-from infernux_tween import AxisConstraint, DOTween, Ease, Path, PathType, ShortcutExtensions as S
+from infernux_tween import AxisConstraint, DOTween, Ease, LoopType, Path, PathType, ShortcutExtensions as S
 
 
 @pytest.fixture
@@ -48,6 +48,18 @@ def test_relative_speed_path_locking_seek_and_orientation(target):
     assert quatf.angle(target.rotation, quatf.look_rotation(Vector3(1, 0, 0))) < 0.01
     tween.Goto(0.5)
     assert tuple(target.position) == pytest.approx((2.5, 3, 4))
+
+
+@pytest.mark.parametrize("local", [False, True])
+def test_incremental_path_preserves_lookahead_direction_in_later_loops(target, local):
+    create = S.DOLocalPath if local else S.DOPath
+    tween = create(target, [(10, 0, 0)], 1).SetLoops(2, LoopType.Incremental)
+    tween.SetEase(Ease.Linear).SetLookAt(0.01).SetAutoKill(False)
+    expected_rotation = quatf.look_rotation(Vector3(1, 0, 0))
+    for clock, position in ((0.5, 5), (1.5, 15), (2, 20)):
+        tween.Goto(clock)
+        assert tuple(target.local_position if local else target.position) == pytest.approx((position, 0, 0))
+        assert quatf.angle(target.local_rotation if local else target.rotation, expected_rotation) < 0.01
 
 
 def test_quaternion_rotation_from_and_speed_use_shortest_arc(target):

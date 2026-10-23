@@ -47,12 +47,14 @@ class Tween:
         self._parent = None
         self._owner = None
         self._started = False
+        self._play_pending = True
         self._locked = False
         self._backwards = False
         self._callbacks = {}
         self._waiters = []
         self._speed_based = False
         self._link = None
+        self._seek_serial = 0
 
     @property
     def full_duration(self):
@@ -81,7 +83,8 @@ class Tween:
         return self
 
     def SetUpdate(self, update_type=UpdateType.Normal, independent=False):
-        self._configure()
+        if self._parent is not None:
+            return self
         previous = self.update_type
         self.update_type, self.independent = UpdateType(update_type), bool(independent)
         if self._owner is not None:
@@ -126,17 +129,47 @@ class Tween:
     def OnRewind(self, callback): return self._on("rewind", callback)
     def OnKill(self, callback): return self._on("kill", callback)
 
-    def _emit(self, name):
+    def _emit(self, name, position=None):
         callback = self._callbacks.get(name)
-        if callback is not None:
-            callback()
+        return True if callback is None else self._invoke(callback, self.position if position is None else position)
+
+    def _invoke(self, callback, position, *, sample=None):
+        states, tween = [], self
+        while True:
+            states.append((tween, tween.position, position, tween.playing, tween._seek_serial, sample))
+            tween.position = position
+            parent = tween._parent
+            if parent is None or parent._sample_context is None:
+                break
+            start = next(start for start, child in parent._entries if child is tween)
+            sample = start + position
+            position, tween = parent._callback_sample(sample)[0], parent
+        callback()
+        interrupted = any(not tween.active or tween.playing != playing or tween.position != clock
+                          or tween._seek_serial != serial for tween, _, clock, playing, serial, _ in states)
+        for tween, previous, clock, _, serial, sample in states:
+            if not interrupted:
+                tween.position = previous
+            elif isinstance(tween, Sequence) and tween.position == clock and tween._seek_serial == serial:
+                if tween._sample_context is None or not tween.duration:
+                    tween._sample_cycle, tween._last_progress = tween._progress_at(clock)
+                else:
+                    tween._sample_cycle = tween._sample_context[0]
+                    fraction = (clock - tween.delay) / tween.duration - tween._sample_cycle
+                    tween._last_progress = 1 - fraction if tween.loop_type == LoopType.Yoyo and tween._sample_cycle % 2 else fraction
+                tween._last_sample = tween._ease(tween._last_progress) * tween.duration if sample is None else sample
+                tween._sampled = True
+        return not interrupted
 
     def Play(self):
         if self.active and not self.playing:
             self.playing = True
+            self._play_pending = True
             if self._owner is not None:
                 self._owner._resume(self)
-            self._emit("play")
+            if self._started and self.position >= self.delay:
+                self._play_pending = False
+                self._emit("play")
         return self
 
     def Pause(self):
@@ -157,12 +190,11 @@ class Tween:
 
     def Restart(self, include_delay=True):
         self._backwards = False
-        self.Goto(0.0 if include_delay else self.delay)
+        self._goto(0.0 if include_delay else self.delay)
         return self.Play()
 
     def Rewind(self, include_delay=True):
-        self.Goto(0.0 if include_delay else self.delay)
-        return self.Pause()
+        return self._goto(0.0 if include_delay else self.delay)
 
     def Flip(self):
         self._backwards = not self._backwards
@@ -183,15 +215,22 @@ class Tween:
             cycle = self.CompletedLoops() - int(elapsed == self.duration)
             if self.loop_type == LoopType.Yoyo and cycle % 2:
                 elapsed = self.duration - elapsed
-            self.Goto(self.delay + elapsed)
+            self._goto(self.delay + elapsed)
         return self.PlayBackwards()
 
     def Goto(self, position, and_play=False):
+        return self._goto(self.delay + max(0.0, float(position)), and_play)
+
+    def _goto(self, position, and_play=False):
         if not self.active:
             return self
+        self._seek_serial += 1
+        serial = self._seek_serial
         self.ForceInit()
         previous = self.position
         self._seek(min(self.full_duration, max(0.0, float(position))), previous, False)
+        if self._seek_serial != serial:
+            return self
         if and_play:
             self.Play()
         else:
@@ -202,14 +241,14 @@ class Tween:
         if self.loops != -1 and self.active:
             self.ForceInit()
             completed = self.IsComplete()
-            self._seek(self.full_duration, self.position, bool(with_callbacks))
+            if self._seek(self.full_duration, self.position, bool(with_callbacks)) is False:
+                return self
             if not self.active or self.position != self.full_duration:
                 return self
-            self.Pause()
             if not with_callbacks and not completed:
                 self._emit("complete")
-            if self.auto_kill and self.position == self.full_duration:
-                self.Kill()
+            if self.active and self.position == self.full_duration:
+                self.Kill() if self.auto_kill else self.Pause()
         return self
 
     def Kill(self, complete=False):
@@ -246,15 +285,7 @@ class Tween:
             return elapsed
         return self.duration if elapsed and elapsed % self.duration == 0 else elapsed % self.duration
 
-    def _seek(self, position, previous, callbacks):
-        self._locked = True
-        self.position = position
-        if callbacks and not self._started and position >= self.delay:
-            self._started = True
-            self._emit("start")
-            self._emit("play")
-            if not self.active:
-                return
+    def _progress_at(self, position):
         elapsed = max(0.0, position - self.delay)
         cycle = floor(elapsed / self.duration) if self.duration else 0
         progress = (elapsed / self.duration - cycle) if self.duration else 1.0
@@ -263,22 +294,45 @@ class Tween:
             progress = 1.0
         if self.loop_type == LoopType.Yoyo and cycle % 2:
             progress = 1 - progress
-        self._apply(progress, cycle, previous, callbacks)
+        return cycle, progress
+
+    def _seek(self, position, previous, callbacks):
+        self._locked = True
+        self.position = position
+        if callbacks and position >= self.delay:
+            if not self._started:
+                self._started = True
+                if not self._emit("start", self.delay):
+                    return False
+            if self._play_pending:
+                self._play_pending = False
+                if not self._emit("play", self.delay):
+                    return False
+        cycle, progress = self._progress_at(position)
+        applied = self._apply(progress, cycle, previous, callbacks)
         self._notify_waiters()
+        if applied is False:
+            return False
+        if not self.active or self.position != position:
+            return
+        if previous > self.delay and position <= self.delay:
+            if not self._emit("rewind"):
+                return False
         if not callbacks or not self.active:
             return
-        self._emit("update")
+        if not self._emit("update"):
+            return False
         if self.duration:
             old_cycles = floor(max(0.0, previous - self.delay) / self.duration)
-            new_cycles = floor(elapsed / self.duration)
+            new_cycles = floor(max(0.0, position - self.delay) / self.duration)
             for _ in range(abs(new_cycles - old_cycles)):
-                self._emit("step")
+                if not self._emit("step"):
+                    return False
                 if not self.active:
                     return
-        if previous > 0 and position == 0:
-            self._emit("rewind")
-        elif position >= self.full_duration and (previous < self.full_duration or self.full_duration == 0):
-            self._emit("complete")
+        if position >= self.full_duration and (previous < self.full_duration or self.full_duration == 0):
+            if not self._emit("complete"):
+                return False
 
     def _advance(self, delta):
         if not self.active or not self.playing:
@@ -290,15 +344,14 @@ class Tween:
         if position < self.delay and previous < self.delay:
             self.position = position
             return
-        self._seek(position, previous, True)
+        if self._seek(position, previous, True) is False:
+            return
         if not self.active or self.position != position:
             return
         if self._backwards and position == 0:
             self.Pause()
         elif not self._backwards and position >= self.full_duration:
-            self.Pause()
-            if self.auto_kill:
-                self.Kill()
+            self.Kill() if self.auto_kill else self.Pause()
 
     def _apply(self, progress, cycle, previous, callbacks):
         raise NotImplementedError
@@ -447,10 +500,16 @@ class Sequence(Tween):
         self._entries = []
         self._last_insert = 0.0
         self._last_sample = 0.0
+        self._last_progress = 0.0
         self._sample_cycle = 0
         self._sampled = False
         self._relative = False
         self._ease = resolve_ease(Ease.Linear)
+        self._linear_ease = True
+        self._sample_context = None
+
+    def SetDelay(self, delay, as_prepended_interval_if_sequence=True):
+        return self.PrependInterval(delay) if as_prepended_interval_if_sequence else super().SetDelay(delay)
 
     def SetLoops(self, loops, loop_type=LoopType.Restart):
         if LoopType(loop_type) == LoopType.Incremental:
@@ -459,6 +518,7 @@ class Sequence(Tween):
 
     def SetEase(self, ease):
         self._ease = resolve_ease(ease)
+        self._linear_ease = ease == Ease.Linear
         return self
 
     def _set_relative(self, relative):
@@ -524,34 +584,97 @@ class Sequence(Tween):
     def AppendCallback(self, callback): return self.InsertCallback(self.duration, callback)
 
     def _apply(self, progress, cycle, previous, callbacks):
-        sample = self._ease(progress) * self.duration
         if callbacks and cycle > self._sample_cycle:
             for completed in range(self._sample_cycle, cycle):
-                endpoint = 0.0 if self.loop_type == LoopType.Yoyo and completed % 2 else self.duration
-                self._sample_children(endpoint, self._last_sample, True, not self._sampled)
-                self._sampled = True
-                self._last_sample = endpoint
+                endpoint = 0.0 if self.loop_type == LoopType.Yoyo and completed % 2 else 1.0
+                if not self._sample_children(endpoint, completed, True):
+                    return False
                 if self.loop_type != LoopType.Yoyo:
-                    self._sample_children(0.0, endpoint, False)
-                    self._last_sample = 0.0
+                    self._sample_children(0.0, completed + 1, False)
                     self._sampled = False
-        self._sample_children(sample, self._last_sample, callbacks, not self._sampled)
-        self._last_sample = sample
-        self._sample_cycle = cycle
-        self._sampled = True
+        return self._sample_children(progress, cycle, callbacks)
 
-    def _sample_children(self, sample, old_sample, callbacks, include_start=False):
-        entries = reversed(self._entries) if sample < old_sample else self._entries
-        for start, item in entries:
-            if not self.active:
-                break
-            if isinstance(item, Tween):
-                if item.active and (sample >= start or old_sample >= start):
-                    item._seek(min(item.full_duration, max(0, sample - start)),
-                               min(item.full_duration, max(0, old_sample - start)), callbacks and sample >= start)
-            elif callbacks and ((old_sample < start <= sample) or (sample <= start < old_sample)
-                                or (include_start and start == 0)):
-                item()
+    def _callback_sample(self, sample):
+        cycle, start, end = self._sample_context
+        if self._linear_ease or not self.duration:
+            progress = sample / self.duration if self.duration else start
+        else:
+            low, high = sorted((start, end))
+            increasing = self._ease(low) < self._ease(high)
+            for _ in range(32):
+                progress = (low + high) / 2
+                value = self._ease(progress) * self.duration
+                if value == sample:
+                    break
+                if (value < sample) == increasing:
+                    low = progress
+                else:
+                    high = progress
+        fraction = 1 - progress if self.loop_type == LoopType.Yoyo and cycle % 2 else progress
+        return self.delay + self.duration * (cycle + fraction), progress
+
+    def _sample_children(self, progress, cycle, callbacks):
+        sample, old_sample = self._ease(progress) * self.duration, self._last_sample
+        previous_context = self._sample_context
+        self._sample_context = (cycle, self._last_progress, progress)
+        include_start = not self._sampled
+        boundaries = []
+        try:
+            if callbacks:
+                for index, (start, item) in enumerate(self._entries):
+                    if isinstance(item, Tween):
+                        points = []
+                        hooks = item._callbacks
+                        if (not item._started and ("start" in hooks or "play" in hooks)) or "rewind" in hooks:
+                            points.append(start + item.delay)
+                        if "step" in hooks and item.duration:
+                            first = max(1, floor((min(sample, old_sample)-start-item.delay)/item.duration))
+                            last = min(item.loops, floor((max(sample, old_sample)-start-item.delay)/item.duration))
+                            points.extend(start + item.delay + loop*item.duration for loop in range(first, last+1))
+                        elif "complete" in hooks:
+                            points.append(start + item.full_duration)
+                        callback = None
+                    else:
+                        points, callback = (start,), item
+                    for point in set(points):
+                        if ((old_sample < point <= sample) or (sample <= point < old_sample)
+                                or (include_start and point == 0)):
+                            boundaries.append((point, index, callback))
+                boundaries.sort(key=lambda entry: entry[:2], reverse=sample < old_sample)
+                for point, index, callback in boundaries:
+                    clock, boundary = self._callback_sample(point)
+                    if not self._sample_items(boundary, cycle, True, index, sample=point):
+                        return False
+                    if callback is not None and not self._invoke(callback, clock, sample=point):
+                        return False
+            return self._sample_items(progress, cycle, callbacks)
+        finally:
+            self._sample_context = previous_context
+
+    def _sample_items(self, progress, cycle, callbacks, before_callback=None, *, sample=None):
+        sample = self._ease(progress) * self.duration if sample is None else sample
+        old_sample = self._last_sample
+        previous_context = self._sample_context
+        self._sample_context = (cycle, self._last_progress, progress)
+        position, was_playing = self.position, self.playing
+        indices = range(len(self._entries)-1, -1, -1) if sample < old_sample else range(len(self._entries))
+        try:
+            for index in indices:
+                start, item = self._entries[index]
+                if not self.active or self.position != position or (was_playing and not self.playing):
+                    return False
+                if isinstance(item, Tween):
+                    if before_callback is not None and index > before_callback and start == sample and old_sample <= start:
+                        continue
+                    if item.active and (sample >= start + item.delay or old_sample >= start + item.delay):
+                        if item._seek(min(item.full_duration, max(0, sample - start)),
+                                      min(item.full_duration, max(0, old_sample - start)), callbacks and sample >= start) is False:
+                            return False
+            self._last_sample, self._last_progress = sample, progress
+            self._sample_cycle, self._sampled = cycle, True
+            return True
+        finally:
+            self._sample_context = previous_context
 
     def Kill(self, complete=False):
         super().Kill(complete)
@@ -629,7 +752,10 @@ class TweenManager:
             raise ValueError("Unscaled delta must be finite and nonnegative")
         self._update_depth += 1
         try:
-            for tween in tuple(self._running[UpdateType(update_type)]):
+            phase = UpdateType(update_type)
+            for tween in tuple(self._running[phase]):
+                if tween.update_type != phase:
+                    continue
                 try:
                     tween._advance((unscaled if tween.independent else delta) * self.timeScale)
                 except Exception:

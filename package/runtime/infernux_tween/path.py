@@ -139,9 +139,10 @@ class PathTween(Tween):
     def _apply(self, progress, cycle, previous, callbacks):
         self.ForceInit()
         factor = self._ease(progress)
-        position = self._path.point(factor)
+        path_position = self._path.point(factor)
+        position = path_position
         if self.loop_type == LoopType.Incremental:
-            position += (self._path.point(1)-self._start)*cycle
+            position = path_position + (self._path.point(1)-self._start)*cycle
         if self._body:
             self.target.move_position(position)
         else:
@@ -151,9 +152,9 @@ class PathTween(Tween):
             if isinstance(self._look_at, (int, float)):
                 look = factor + max(0.00001, self._look_at)
                 aim = self._path.point(look % 1 if self._closed else min(1, look))
-                direction = aim - position
+                direction = aim - path_position
                 if direction.sqr_magnitude < 1e-12:
-                    direction = position - self._path.point(max(0, factor-0.00001))
+                    direction = path_position - self._path.point(max(0, factor-0.00001))
             else:
                 aim = self._look_at.position if isinstance(self._look_at, type(transform)) else Vector3(*self._look_at)
                 if self.local:
