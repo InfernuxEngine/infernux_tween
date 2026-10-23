@@ -328,7 +328,23 @@ class Tween:
         return not interrupted
 
     def play(self):
-        if self.active and not self.playing:
+        self._play()
+        return self
+
+    def _play(self, backwards=None):
+        if not self.active:
+            return False
+        changed_direction = backwards is not None and self._backwards != backwards
+        if backwards is not None:
+            self._backwards = backwards
+        at_boundary = self.position <= self._delay if self._backwards else self.is_complete()
+        if at_boundary:
+            if backwards is not None and self.playing:
+                self.playing = False
+                if self._owner is not None:
+                    self._owner._pause(self)
+            return False
+        if not self.playing:
             self.playing = True
             self._play_pending = True
             if self._owner is not None:
@@ -336,7 +352,8 @@ class Tween:
             if self._started and self.position >= self._delay:
                 self._play_pending = False
                 self._emit("play")
-        return self
+            return True
+        return changed_direction
 
     def pause(self):
         if self.playing:
@@ -347,12 +364,12 @@ class Tween:
         return self
 
     def play_forward(self):
-        self._backwards = False
-        return self.play()
+        self._play(False)
+        return self
 
     def play_backwards(self):
-        self._backwards = True
-        return self.play()
+        self._play(True)
+        return self
 
     def restart(self, include_delay: bool=True, change_delay_to: float=-1):
         self._backwards = False
@@ -402,8 +419,8 @@ class Tween:
         return self
 
     def done(self):
-        if self._duration == 0:
-            self.manual_update(0, 0)
+        if self._duration == 0 and self._parent is None:
+            self.complete()
         return self
 
     def _goto(self, position, and_play=False):
@@ -455,7 +472,7 @@ class Tween:
 
     def is_active(self): return self.active
     def is_playing(self): return self.active and self.playing
-    def is_complete(self): return self.active and self.position >= self.full_duration and (self._duration > 0 or self._initialized)
+    def is_complete(self): return self.active and self.position >= self.full_duration and (self._duration > 0 or (self._initialized and self._locked))
     def is_backwards(self): return self.active and self._backwards
     def delay(self): return self._delay if self.active else 0.0
     def elapsed_delay(self): return min(self.position, self._delay) if self.active else 0.0
@@ -1433,9 +1450,13 @@ class TweenManager:
         matching = self._matching(target_or_id, id)
         affected = 0
         for tween in matching:
-            if action == 'pause' and not tween.playing:
+            if action in ('play', 'play_forward', 'play_backwards'):
+                affected += tween._play(None if action == 'play' else action == 'play_backwards')
                 continue
-            if action == 'play' and tween.playing:
+            if action == 'toggle_pause' and not tween.playing:
+                affected += tween._play()
+                continue
+            if action == 'pause' and not tween.playing:
                 continue
             if action == 'complete' and (tween._loops == -1 or tween.is_complete()):
                 continue
@@ -1573,8 +1594,12 @@ class TweenParams:
         self.clear()
 
     def clear(self):
-        self._settings = Tween(0)
-        self._settings._ease_source = Ease.UNSET
+        settings = self._settings = Tween(0)
+        defaults = _default_manager
+        settings.auto_kill, settings.loop_type = defaults.default_auto_kill, defaults.default_loop_type
+        settings.update_type, settings.independent = defaults.default_update_type, defaults.default_time_scale_independent
+        settings._ease_source = Ease.UNSET
+        settings._ease_args = defaults.default_ease_overshoot_or_amplitude, defaults.default_ease_period
         return self
 
     def _set(self, name, *args, **kwargs):
@@ -1582,12 +1607,38 @@ class TweenParams:
         return self
 
     def set_id(self, object_id): return self._set("set_id", object_id)
+    def set_target(self, target): return self._set("set_target", target)
     def set_auto_kill(self, auto_kill_on_completion=True): return self._set("set_auto_kill", auto_kill_on_completion)
-    def set_loops(self, loops, loop_type=_UNSET): return self._set("set_loops", loops, loop_type)
+    def set_loops(self, loops: int, loop_type: LoopType | None=None):
+        return self._set("set_loops", loops, _UNSET if loop_type is None else loop_type)
     def set_delay(self, delay): return self._set("set_delay", delay)
     def set_relative(self, is_relative=True): return self._set("set_relative", is_relative)
-    def set_update(self, *args, **kwargs): return self._set("set_update", *args, **kwargs)
-    def set_ease(self, *args, **kwargs): return self._set("set_ease", *args, **kwargs)
+    @overload
+    def set_update(self, is_independent_update: bool): ...
+    @overload
+    def set_update(self, update_type: UpdateType, is_independent_update: bool=False): ...
+    def set_update(self, *args, **kwargs):
+        if ((args and isinstance(args[0], UpdateType)) or "update_type" in kwargs):
+            if len(args) < 2 and "is_independent_update" not in kwargs:
+                kwargs["is_independent_update"] = False
+        return self._set("set_update", *args, **kwargs)
+    @overload
+    def set_ease(self, ease: Ease, overshoot_or_amplitude: float | None=None, period: float | None=None): ...
+    @overload
+    def set_ease(self, anim_curve: AnimationCurve): ...
+    @overload
+    def set_ease(self, custom_ease: Callable[[float, float, float, float], float]): ...
+    def set_ease(self, ease=_UNSET, overshoot_or_amplitude=None, period=None, **kwargs):
+        if isinstance(ease, Ease):
+            if kwargs:
+                raise TypeError("set_ease expects ease, overshoot_or_amplitude and period")
+            amplitude = (_default_manager.default_ease_overshoot_or_amplitude
+                         if overshoot_or_amplitude is None else overshoot_or_amplitude)
+            period = _default_manager.default_ease_period if period is None else period
+            return self._set("set_ease", ease, amplitude, period)
+        if overshoot_or_amplitude is not None or period is not None:
+            raise TypeError("numeric ease parameters require Ease")
+        return self._set("set_ease", ease, **kwargs)
     def set_speed_based(self, is_speed_based=True):
         self._settings._speed_based = is_speed_based
         return self

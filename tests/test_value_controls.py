@@ -314,3 +314,91 @@ def test_settings_queries_fillable_lists_and_combined_target_id_controls():
     assert manager.tweens_by_id('shared', fillable_list=supplied) is supplied and supplied == []
     manager.clear(True)
     assert manager.default_update_type is UpdateType.NORMAL and not manager.default_time_scale_independent
+
+
+def test_play_controls_respect_endpoints_direction_and_affected_counts():
+    manager, value, events = TweenManager(), [0.0], []
+    tween = manager.to(lambda: value[0], lambda v: value.__setitem__(0, v), 10., 1)
+    tween.set_ease(Ease.LINEAR).set_auto_kill(False).set_id('move')
+    tween.on_play(lambda: events.append('play'))
+    assert manager.play_backwards('move') == 0
+    assert tween.is_backwards() and not tween.is_playing()
+    assert manager.play_all() == 0
+    assert manager.play_forward('move') == 1
+    assert manager.play_forward('move') == 0
+    manager.update(1)
+    assert value[0] == 10 and tween.is_complete()
+    assert manager.play('move') == manager.play_forward_all() == manager.toggle_pause('move') == 0
+    assert not tween.play().is_playing() and events == ['play']
+    assert manager.play_backwards_all() == 1
+    assert manager.play_backwards_all() == 0
+    assert manager.play_forward_all() == 0
+    assert not tween.is_backwards() and not tween.is_playing()
+    assert manager.play_backwards_all() == 1
+    manager.update(0.25)
+    assert value[0] == 7.5
+    assert manager.play_forward_all() == 1
+    assert manager.play_forward_all() == 0
+    manager.update(0.1)
+    assert value[0] == pytest.approx(8.5)
+    tween.rewind().play_backwards()
+    assert not tween.is_playing() and manager.play_all() == 0
+    tween.restart()
+    assert tween.is_playing()
+    manager.clear()
+
+
+def test_tween_params_capture_defaults_and_keep_their_own_overloads(monkeypatch):
+    import infernux_tween.core as core
+    from infernux_tween import TweenParams, UpdateType
+    defaults = TweenManager()
+    defaults.default_auto_kill = False
+    defaults.default_loop_type = LoopType.YOYO
+    defaults.default_update_type, defaults.default_time_scale_independent = UpdateType.FIXED, True
+    defaults.default_ease_overshoot_or_amplitude, defaults.default_ease_period = 2.75, 0.4
+    monkeypatch.setattr(core, '_default_manager', defaults)
+    params, manager, target, value = TweenParams(), TweenManager(), object(), [0.0]
+    params.set_target(object()).set_loops(3, None)
+    tween = manager.to(lambda: value[0], lambda v: value.__setitem__(0, v), 10., 1).set_target(target).set_as(params)
+    assert tween.target is target and not tween.auto_kill
+    assert tween.loop_type is LoopType.YOYO and tween.loops() == 3
+    assert tween.update_type is UpdateType.FIXED and tween.independent
+    assert tween._ease_args == (2.75, 0.4)
+    params.set_update(UpdateType.LATE)
+    tween.set_as(params)
+    assert tween.update_type is UpdateType.LATE and not tween.independent
+    params.set_update(True).set_ease(Ease.OUT_ELASTIC, period=0.2)
+    tween.set_as(params)
+    assert tween.update_type is UpdateType.FIXED and tween.independent
+    assert tween._ease_args == (2.75, 0.2)
+    params.set_ease(Ease.OUT_BACK, overshoot_or_amplitude=4)
+    tween.set_as(params)
+    assert tween._ease_args == (4, 0.4)
+    params.set_ease(Ease.IN_ELASTIC, None, None)
+    tween.set_as(params)
+    assert tween._ease_args == (2.75, 0.4)
+    params.clear().set_ease(custom_ease=lambda t, d, a, p: t/d)
+    tween.set_as(params).goto(0.5)
+    assert value[0] == 5 and params._settings.target is None
+    assert tween.target is target and tween.loop_type is LoopType.YOYO
+    manager.clear()
+
+
+def test_done_completes_paused_or_delayed_zero_duration_roots_only():
+    for delayed in (False, True):
+        manager, value, events = TweenManager(), [0.0], []
+        tween = manager.to(lambda: value[0], lambda v: value.__setitem__(0, v), 10., 0)
+        tween.on_complete(lambda: events.append('complete')).pause()
+        if delayed:
+            tween.set_delay(2)
+        tween.force_init()
+        assert not tween.is_complete()
+        assert tween.done() is tween
+        assert value[0] == 10 and not tween.is_active() and events == ['complete']
+        value = [0.0]
+        child = manager.to(lambda: value[0], lambda v: value.__setitem__(0, v), 10., 0)
+        sequence = manager.sequence().append_interval(1).append(child)
+        child.done()
+        assert value[0] == 0 and child.is_active() and not child.is_initialized()
+        manager.update(1)
+        assert value[0] == 10 and not sequence.is_active()

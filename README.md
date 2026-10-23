@@ -37,6 +37,10 @@ Configure before playback or sequence insertion. `force_init()` initializes valu
 
 Instance controls include `play`, `pause`, `restart`, `rewind`, `goto`, `complete`, `kill`, backwards playback, flip, toggle, smooth rewind and queries. `restart(include_delay=True, change_delay_to=-1)` can replace startup delay. Filtered module controls require a target or ID; `play_all`, `pause_all`, `kill_all` and the other `*_all` functions explicitly address all roots. Native target helpers such as `do_pause(target)` use the same manager.
 
+`play` resumes in the current direction; a completed forward tween needs `restart` to start again. Direction controls report only affected roots. `done()` completes a zero-duration root immediately, including when paused or delayed, and leaves sequence children to their parent.
+
+`TweenParams` captures current global defaults when constructed or cleared. Its `set_ease(ease, overshoot_or_amplitude=None, period=None)` accepts each optional parameter independently. `set_as` preserves the receiving tween's target even when the parameter object stores a target.
+
 `set_update` accepts a bool, an `UpdateType`, or an `UpdateType` and a bool. The bool selects independent time. `manual_update(scaled_delta, unscaled_delta)` advances only manual roots. `get_time_scale()` and `set_time_scale(value)` control the default manager. A separate `TweenManager` owns its own clocks and factories.
 
 The installed plugin owns frame registrations; empty and fully paused groups do not perform idle updates. Editor Stop clears owned animations. `set_link(game_object, LinkBehaviour...)` handles owner lifetime, including paused roots. Coroutine and async wait methods use the engine coroutine service or the caller's existing asyncio loop.

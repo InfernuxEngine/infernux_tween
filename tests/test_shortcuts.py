@@ -257,7 +257,7 @@ def test_target_controls_and_culture_grouping_preserve_real_playback_state(targe
     assert S.do_flip(target) == 1
     tween_api.update(0.25)
     assert target.position.x == 0
-    assert S.do_toggle_pause(target) == 1
+    assert S.do_toggle_pause(target) == 0 and not move.is_playing()
     assert S.do_play_forward(target) == 1
     tween_api.update(0.5)
     assert S.do_play_backwards(target) == 1
