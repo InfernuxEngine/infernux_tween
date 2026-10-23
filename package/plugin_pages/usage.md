@@ -18,9 +18,19 @@ playback or insertion into a sequence; each child belongs to one sequence.
 Control it with `Play`, `Pause`, `Restart`, `Rewind`, `Goto`, `Complete` and `Kill`.
 Callbacks run on the engine thread. Times are seconds.
 
+`From(value, set_immediately=False, relative=True)` fixes explicit endpoints when
+called and delays writing them. Without a value, `From(set_immediately=False)`
+captures the target at playback startup. See the repository README for string
+and quaternion relative rules.
+`ChangeStartValue`, `ChangeEndValue` and `ChangeValues` rewind regular value
+tweeners, retaining consumed delay and playback state. A new positive duration
+replaces the duration, or speed in speed-based mode. `ChangeEndValue(value, True)`
+captures the current target as the new start and keeps the duration. These methods
+have no effect on Sequence children; backwards playback stops at the beginning.
+
 `Goto(seconds)` addresses the animation timeline without its initial delay.
 On a sequence, `SetDelay(seconds)` prepends a repeating interval; pass
-`asPrependedIntervalIfSequence=False` for a one-time startup delay. A sequence
+`as_prepended_interval_if_sequence=False` for a one-time startup delay. A sequence
 callback can pause at its own position and `Play()` resumes there, including
 joined and nested children. A root can change its update clock with `SetUpdate`
 during playback; children use their root's clock.

@@ -26,8 +26,16 @@ Play 也会恢复原始值。预览不发送游戏事件。生命周期管理组
 通过 `Play`、`Pause`、`Restart`、`Rewind`、`Goto`、`Complete`、`Kill` 控制播放。
 回调在引擎线程执行，手动更新与自动更新相互独立。
 
+`From(value, set_immediately=False, relative=True)` 在调用时固定显式端点，等播放时
+才写入目标；没有指定起点的 `From(set_immediately=False)` 则在播放开始时捕获目标。
+字符串和四元数的相对规则见仓库 README。普通属性补间可以用 `ChangeStartValue`、
+`ChangeEndValue`、`ChangeValues` 修改端点并回到动画起点，保留已经消耗的延时和
+播放／暂停状态。传入新的正时长才替换时长；速度模式下该参数为新速度。
+`ChangeEndValue(value, True)` 捕获当前值作为新起点并保留时长。序列子项忽略这些
+调用；倒放动画回到起点后停止。
+
 `Goto(seconds)` 使用不含首次延时的动画时间。Sequence 的 `SetDelay(seconds)`
-默认在开头加入随循环重复的间隔；传入 `asPrependedIntervalIfSequence=False`
+默认在开头加入随循环重复的间隔；传入 `as_prepended_interval_if_sequence=False`
 则只在首次播放前等待。序列回调内暂停会保留该回调所在的位置，`Play()` 从那里继续，
 包括并行和嵌套子动画。根动画播放期间可用 `SetUpdate` 切换时钟；子动画跟随根时钟。
 
