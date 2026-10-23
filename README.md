@@ -1,15 +1,14 @@
 # Infernux Tween
 
 Official animation plugin for Infernux, maintained independently of the engine.
-Requires Infernux **0.4.3 build 3 or later**, including the preload-library import
-and reload fixes. No public plugin release is available yet.
+Requires Infernux **0.4.3 build 3 or later**, including native grapheme splitting
+and preload-library imports. Install **Infernux Tween** from the official plugin
+catalog's Animation category.
 
-**In development.** No public plugin version is advertised yet. The current core
-implements value tweens, easing, playback controls, restart/yoyo/incremental value
+The plugin implements value tweens, easing, playback controls, restart/yoyo/incremental value
 loops, separate update clocks, nested sequences and native target shortcuts.
-Authoring components are implemented and undergoing Editor integration checks;
-the remaining product/platform checks are in progress. Incremental loops apply to
-value tweeners; sequences support restart
+Authoring components use the engine Inspector, Scene handles and reversible previews.
+Incremental loops apply to value tweeners; sequences support restart
 and yoyo loops, whole-sequence easing and relative child values.
 
 ```python
@@ -144,8 +143,7 @@ the root sequence to its GameObject for lifetime control.
 A setter or callback exception terminates its owning root timeline and propagates
 to the engine's normal error reporting. Failed actions are not replayed next frame.
 
-The build 3 SDK is being validated against the engine source before the public
-SDK pin changes. The current public build 2 SDK does not provide the string API.
+Development and CI use the published build 3 wheels in `sdk-requirements.txt`.
 
 The API names and common behaviors are informed by the public
 [DOTween documentation](https://dotween.demigiant.com/documentation.php).

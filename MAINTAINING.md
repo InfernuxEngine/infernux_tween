@@ -3,13 +3,13 @@
 This is an independent official plugin. The engine does not contain a submodule,
 CMake dependency or bundled source copy of this repository.
 
-Use CPython 3.13 and install `sdk-requirements.txt` in a development environment.
-The SDK is pinned to the published Infernux 0.4.3 build 2 wheel on Windows/Linux.
+Use a fresh CPython 3.13 environment and install `sdk-requirements.txt`.
+The SDK is pinned to the published Infernux 0.4.3 build 3 wheel on Windows/Linux.
 Run `python -m pytest`, then `python package.py`. Only `package/` enters the
 archive; tests and examples remain development content.
 
-After product/platform validation, change `package/inx_package.json` once and
-push its matching `v<version>` tag. CI tests both desktop platforms before
+After product/platform validation, push the `v<version>` tag matching
+`package/inx_package.json`. Update the manifest once for each new plugin release. CI tests both desktop platforms before
 creating a GitHub Release containing the package, the engine release manifest,
 and `official-registry-entry.json`.
 
