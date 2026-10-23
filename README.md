@@ -162,6 +162,13 @@ the root sequence to its GameObject for lifetime control.
 A setter or callback exception terminates its owning root timeline and propagates
 to the engine's normal error reporting. Failed actions are not replayed next frame.
 
+Tween Animation and Tween Path expose persistent **On Start**, **On Complete**,
+**On Kill** and **On Rewind** lists in Inspector. Add a callback, select its exact
+target component, choose a public method and edit its positional arguments. These
+bindings support Save, Undo and scene reload, including multiple components of
+the same type on one object. Methods requiring keyword-only or variadic arguments
+are not offered. Script listeners remain available; editor preview invokes neither.
+
 Development and CI use the published build 3 wheels in `sdk-requirements.txt`.
 
 The API names and common behaviors are informed by the public

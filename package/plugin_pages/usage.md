@@ -58,6 +58,14 @@ Tween** for reversible preview; Save, Undo, selection changes and Play also rest
 the authored values. Preview sends no gameplay events. Visual Manager supplies
 explicit activation/deactivation actions for pooling.
 
+**On Start**, **On Complete**, **On Kill** and **On Rewind** provide persistent
+Inspector callback lists. Add an entry, pick the exact target component, select a
+public method and configure its positional arguments. Bindings survive scene
+Save/reload and support Undo/Redo. The picker distinguishes repeated component
+types on an object; removing that instance never selects a different one.
+Uninspectable, variadic and required keyword-only methods are not offered.
+Script listeners and persistent callbacks are both suppressed during preview.
+
 Custom easing accepts a native `AnimationCurve` or a compiled CPU `EaseCurve`.
 Jump, Punch, Shake and Spiral are seekable. Blendable movement, scale, rotation
 and color preserve other writers. Authored runtime animations link to target

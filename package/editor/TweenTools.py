@@ -68,6 +68,12 @@ class TweenTools(InxPreload):
         registration = register_handle_provider("infernux.tween.paths", _draw_paths,
                                                 enabled=lambda: not SceneManager.instance().is_playing())
         context.add_cleanup(registration.close)
+        from infernux.engine.ui.inspector_components import register_py_component_extra_renderer
+        from .TweenEvents import draw_events, _cached_methods
+        for name in ('DOTweenAnimation', 'DOTweenPath'):
+            register_py_component_extra_renderer(name, draw_events)
+            context.add_cleanup(lambda name=name: register_py_component_extra_renderer(name, None))
+        context.add_cleanup(_cached_methods.cache_clear)
 
 
 @editor_panel("Tween", type_id="infernux.tween.tools", title_key="tween.panel", menu_path="Animation",

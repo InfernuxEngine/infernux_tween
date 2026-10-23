@@ -148,7 +148,17 @@
       "tween.scramble.Uppercase": "Uppercase",
       "tween.scramble.Lowercase": "Lowercase",
       "tween.scramble.Numerals": "Numbers",
-      "tween.scramble.Custom": "Custom"
+      "tween.scramble.Custom": "Custom",
+      "tween.callback_target": "Target Component",
+      "tween.callback_method": "Method",
+      "tween.edit_events": "Edit Tween Events",
+      "tween.on_start": "On Start",
+      "tween.on_complete": "On Complete",
+      "tween.on_kill": "On Kill",
+      "tween.on_rewind": "On Rewind",
+      "tween.no_function": "No Function",
+      "tween.missing_method": "Unavailable method: {name}",
+      "tween.callback_entry": "Callback {n}"
     },
     "zh": {
       "tween.target": "目标物体",
@@ -297,7 +307,17 @@
       "tween.scramble.Uppercase": "大写字母",
       "tween.scramble.Lowercase": "小写字母",
       "tween.scramble.Numerals": "数字",
-      "tween.scramble.Custom": "自定义"
+      "tween.scramble.Custom": "自定义",
+      "tween.callback_target": "目标组件",
+      "tween.callback_method": "方法",
+      "tween.edit_events": "编辑补间事件",
+      "tween.on_start": "开始时",
+      "tween.on_complete": "完成时",
+      "tween.on_kill": "终止时",
+      "tween.on_rewind": "回到起点时",
+      "tween.no_function": "不调用方法",
+      "tween.missing_method": "方法不可用：{name}",
+      "tween.callback_entry": "回调 {n}"
     }
   }
 }

@@ -7,6 +7,7 @@ from infernux.lib import GameObject, SceneManager
 from infernux.ui.ui_event import UIEvent
 
 from infernux_tween import DOTween, Ease, LoopType, TweenManager, UpdateType
+from infernux_tween.events import TweenCallback, invoke_callbacks
 
 
 class UpdateClock(str, Enum):
@@ -34,6 +35,14 @@ class TweenAuthoring(InxComponent):
     auto_kill: bool = serialized_field(default=False, display_name_key="tween.auto_kill")
     tween_id: str = serialized_field(default="", display_name_key="tween.id")
     relative: bool = serialized_field(default=False, display_name_key="tween.relative")
+    on_start_entries: list = serialized_field(default=[], field_type=FieldType.LIST,
+        element_type=FieldType.SERIALIZABLE_OBJECT, element_class=TweenCallback, hidden=True)
+    on_complete_entries: list = serialized_field(default=[], field_type=FieldType.LIST,
+        element_type=FieldType.SERIALIZABLE_OBJECT, element_class=TweenCallback, hidden=True)
+    on_kill_entries: list = serialized_field(default=[], field_type=FieldType.LIST,
+        element_type=FieldType.SERIALIZABLE_OBJECT, element_class=TweenCallback, hidden=True)
+    on_rewind_entries: list = serialized_field(default=[], field_type=FieldType.LIST,
+        element_type=FieldType.SERIALIZABLE_OBJECT, element_class=TweenCallback, hidden=True)
     _tween = None
     _preview_manager = None
     _preview_registration = None
@@ -52,6 +61,19 @@ class TweenAuthoring(InxComponent):
     @property
     def on_rewind(self): return self._event("_rewind_event")
 
+    def _invoke_event(self, name):
+        getattr(self, "on_"+name).invoke()
+        if not self.is_valid:
+            return
+        bindings = self.__dict__.setdefault("_persistent_events", {}).setdefault(name, [])
+        invoke_callbacks(getattr(self, "on_"+name+"_entries"), bindings, self)
+
+    def on_validate(self):
+        self.__dict__.pop("_persistent_events", None)
+
+    def on_disable(self):
+        self.__dict__.pop("_persistent_events", None)
+
     def _target_object(self):
         return self.game_object if self.target is None else self.target
 
@@ -63,8 +85,11 @@ class TweenAuthoring(InxComponent):
             self.CreateTween()
 
     def on_destroy(self):
-        if self._tween is not None:
-            self._tween.Kill()
+        try:
+            if self._tween is not None:
+                self._tween.Kill()
+        finally:
+            self.__dict__.pop("_persistent_events", None)
 
     def _build(self, preview=False):
         raise NotImplementedError
@@ -91,8 +116,8 @@ class TweenAuthoring(InxComponent):
             else:
                 phase = tween.update_type if self.clock == UpdateClock.Auto else UpdateType[self.clock.name]
                 tween.SetUpdate(phase, self.independent)
-                tween.OnStart(self.on_start.invoke).OnComplete(self.on_complete.invoke)
-                tween.OnKill(self.on_kill.invoke).OnRewind(self.on_rewind.invoke)
+                tween.OnStart(lambda: self._invoke_event("start")).OnComplete(lambda: self._invoke_event("complete"))
+                tween.OnKill(lambda: self._invoke_event("kill")).OnRewind(lambda: self._invoke_event("rewind"))
                 if SceneManager.instance().is_playing():
                     tween.SetLink(self._lifetime_target())
             self._after_configure(tween)
