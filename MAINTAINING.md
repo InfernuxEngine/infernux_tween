@@ -4,7 +4,7 @@ This is an independent official plugin. The engine does not contain a submodule,
 CMake dependency or bundled source copy of this repository.
 
 Use a fresh CPython 3.13 environment and install `sdk-requirements.txt`.
-The SDK is pinned to the published Infernux 0.4.3 build 3 wheel on Windows/Linux.
+The SDK is pinned to the published Infernux 0.4.3 hotfix 4 wheel on Windows/Linux.
 Run `python -m pytest`, then `python package.py`. Only `package/` enters the
 archive; tests and examples remain development content.
 
@@ -18,4 +18,5 @@ The engine release maintainer reviews that entry, registers it in
 R2 using `scripts/release/publish_plugin_objects.py --reference infernux/tween`,
 and publishes the complete official registry last. Do not advertise a package
 before its public asset and platform validation exist. Plugin releases do not
-require a new engine wheel.
+require a new engine wheel unless they introduce a native API dependency. In that
+case, publish and pin the matching engine hotfix before tagging the plugin.

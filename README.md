@@ -1,6 +1,6 @@
 # Infernux Tween
 
-Official value, scene and text animation plugin for Infernux. The plugin is maintained in its own repository and installed from the official Animation catalog. Version 0.1.1 is a development candidate and requires Infernux **0.4.3 hotfix 4 or later**. Its native character features cannot run on the build 3 SDK.
+Official value, scene and text animation plugin for Infernux. The plugin is maintained in its own repository and installed from the official Animation catalog. Version 0.1.1 requires Infernux **0.4.3 hotfix 4 or later**. Its native character features cannot run on the build 3 SDK.
 
 ```python
 import infernux_tween as tween
@@ -80,4 +80,4 @@ Character offsets, Euler angles and scales are real Vector3 values. Uniform scal
 
 ## Validation
 
-Run `python -m pytest` with the matching published SDK from `sdk-requirements.txt`. Package tests install the archive into a clean project and verify library import/unload. Release acceptance additionally uses real Windows/Linux Editors and Players, Android, and Web on Windows/Linux. The ongoing native hotfix and strict-API candidate require renewed acceptance; prior 0.1.1 development results do not certify this revision.
+Run `python -m pytest` with the matching published SDK from `sdk-requirements.txt`. CI verifies both desktop platforms before publishing a tagged package. Package tests install the archive into a clean project and verify library import/unload. Release acceptance additionally uses real Windows/Linux Editors and Players, Android, and Web on Windows/Linux.
