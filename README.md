@@ -79,7 +79,7 @@ Animation options retain their typed public fields. `optional_rotation_mode` is 
 
 Visual Manager has distinct `on_enable_behaviour` and `on_disable_behaviour` enum fields. Enable supports None, Play, Restart and Restart From Spawn Point; disable supports None, Pause, Rewind, Kill, Kill And Complete and Destroy GameObject. Spawn restart runs on the next component update, after the caller can place the newly enabled object, and rebases relative movement/path coordinates. Kill And Complete dispatches completion before killing. These actions control existing tweens and do not implicitly generate replacements. The Pooling System preset selects spawn restart/pause and retains the authored tweens while playing.
 
-Persistent On Start, Play, Update, Step Complete, Complete, Rewind, Kill and Tween Created lists use the engine's list/reference/Undo widgets and bind the exact component instance. Only representable primitive, GameObject and component arguments are offered. Unsupported annotations are not converted into string arguments. Replacing scripts invalidates cached method lists through the runtime epoch.
+Persistent On Start, Play, Update, Step Complete, Complete, Rewind, Kill and Tween Created lists use the engine's list/reference/Undo widgets and bind the exact component instance. Destroyed or retiring targets are skipped during dispatch. Only representable primitive, GameObject and component arguments are offered. Unsupported annotations are not converted into string arguments. Replacing scripts invalidates cached method lists through the runtime epoch.
 
 ## Character animation
 

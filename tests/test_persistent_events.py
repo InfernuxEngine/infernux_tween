@@ -1,10 +1,12 @@
+import pytest
+
 from infernux.components import ComponentRef, InxComponent, serialized_field
 from infernux.components.fields import get_raw_field_value
 from infernux.lib import SceneManager, Vector3
 from infernux.ui.ui_event_entry import UIEventArgument
 from infernux_tween import Ease
 import infernux_tween as tween_api
-from infernux_tween.events import TweenCallback
+from infernux_tween.events import TweenCallback, invoke_callbacks
 from runtime.TweenAnimation import TweenAnimation
 from test_links import owner
 
@@ -131,3 +133,37 @@ def test_persistent_callback_membership_is_fixed_for_each_invocation(owner):
     animation.on_start_entries = [TweenCallback(target=ComponentRef(receiver), method_name='RemoveCallback'), callback(receiver, 3)]
     animation._invoke_event('start')
     assert receiver.count == 7 and len(animation.on_start_entries) == 1
+
+
+def test_destroy_kill_skips_retiring_targets_and_keeps_live_callback_diagnostics(owner, monkeypatch):
+    from infernux.components.ref_wrappers import retiring_scene_references
+    from infernux.debug import Debug
+
+    scene, obj = owner
+    manager = SceneManager.instance()
+    surviving_scene = manager.create_scene('Surviving callback scene')
+    try:
+        retiring = obj.add_component(EventReceiver)
+        live = surviving_scene.create_game_object('Live receiver').add_component(EventReceiver)
+        animation = obj.add_component(TweenAnimation)
+        animation.auto_generate, animation.auto_play, animation.auto_kill = False, False, False
+        animation.on_kill_entries = [callback(retiring, 1), callback(live, 10)]
+        animation._invoke_event('kill')
+        bindings = animation._persistent_events['kill']
+        assert retiring.count == 1 and live.count == 10 and bindings[0] is not None
+
+        errors = []
+        monkeypatch.setattr(Debug, 'log_error', lambda message, *_args: errors.append(message))
+        manager.play()
+        animation.create_tween()
+        with retiring_scene_references(scene.world_id):
+            animation.on_destroy()
+
+        assert retiring.count == 1 and live.count == 20
+        assert bindings[0] is None and '_persistent_events' not in animation.__dict__
+        assert errors == []
+        assert not animation._tween.is_active()
+        with pytest.raises(ValueError, match='MissingRecord'):
+            invoke_callbacks([TweenCallback(target=ComponentRef(live), method_name='MissingRecord')], [], animation)
+    finally:
+        manager.unload_scene(surviving_scene)

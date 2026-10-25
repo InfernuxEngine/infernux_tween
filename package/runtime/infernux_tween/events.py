@@ -28,7 +28,6 @@ def invoke_callbacks(entries, bindings, owner):
         component = entry.target
         if component is None:
             bindings[index] = None
-            Debug.log_error(f"Tween callback target is unavailable: {entry.method_name}", owner)
             continue
         target = component.game_object
         binding = bindings[index]
