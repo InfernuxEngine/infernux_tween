@@ -199,11 +199,12 @@ def test_change_end_boolean_argument_snaps_start_without_replacing_duration():
 
 def test_typed_options_distinguish_color_alpha_vector_axes_and_real_vector4():
     from infernux.lib import vec4f
+    assert [int(axis) for axis in AxisConstraint] == [2, 4, 8, 16]
     manager = TweenManager()
     color, vector, vector4 = [[0.2, 0.3, 0.4, 0.5]], [Vector3(1, 2, 3)], [vec4f(1, 2, 3, 4)]
     manager.to(lambda: color[0], lambda v: color.__setitem__(0, v), [1., 1., 1., 1.], 1).set_options(True).set_ease(Ease.LINEAR)
-    manager.to(lambda: vector[0], lambda v: vector.__setitem__(0, v), Vector3(10, 20, 30), 1).set_options(AxisConstraint.Y, True).set_ease(Ease.LINEAR)
-    manager.to(lambda: vector4[0], lambda v: vector4.__setitem__(0, v), vec4f(10, 20, 30, 40), 1).set_options(AxisConstraint.W).set_ease(Ease.LINEAR)
+    manager.to(lambda: vector[0], lambda v: vector.__setitem__(0, v), Vector3(10, 20, 30), 1).set_options(AxisConstraint(4), True).set_ease(Ease.LINEAR)
+    manager.to(lambda: vector4[0], lambda v: vector4.__setitem__(0, v), vec4f(10, 20, 30, 40), 1).set_options(AxisConstraint(16)).set_ease(Ease.LINEAR)
     manager.update(0.5)
     assert color[0] == pytest.approx([0.2, 0.3, 0.4, 0.75])
     assert tuple(vector[0]) == (1, 11, 3)

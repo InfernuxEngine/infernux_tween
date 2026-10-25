@@ -201,7 +201,7 @@ class PathTween(Tween):
             transform = self._path_target.transform if self._body else self._path_target
             self._start = getattr(transform if self.local else self._path_target, self._name)
             points = [point+self._start for point in self._waypoints] if self._relative else self._waypoints
-            points = [Vector3(*(self._start[i] if self._lock_position & (1 << i) else point[i] for i in range(3))) for point in points]
+            points = [Vector3(*(self._start[i] if self._lock_position & (2 << i) else point[i] for i in range(3))) for point in points]
             self._path = Path(self._start, points, self._kind, self._resolution, self._closed)
             self._rotation = transform.euler_angles
             if self._speed_based and not self._initialized:
@@ -244,7 +244,7 @@ class PathTween(Tween):
                 rotation *= self._forward_correction
                 if self._lock_rotation:
                     angles = rotation.euler_angles
-                    rotation = quatf.euler(*(self._rotation[i] if self._lock_rotation & (1 << i) else angles[i] for i in range(3)))
+                    rotation = quatf.euler(*(self._rotation[i] if self._lock_rotation & (2 << i) else angles[i] for i in range(3)))
                 if self._body:
                     self._path_target.move_rotation(rotation)
                 else:

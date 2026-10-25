@@ -51,6 +51,14 @@ class TweenPath(TweenAuthoring):
             point = target.parent.transform_point(point)
         return point
 
+    def _restart_from_here(self):
+        tween = self.tween
+        tween.force_init()
+        target = tween._path_target.transform if tween.local and tween._body else tween._path_target
+        offset = getattr(target, tween._name) - tween._start
+        tween._path.points = [point + offset for point in tween._path.points]
+        tween._start += offset
+
     def waypoint_from_world(self, point):
         target = self._target_object().transform
         point = Vector3(*point)

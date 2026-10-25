@@ -5,7 +5,7 @@ from infernux.components.builtin import AudioSource, Camera, Light, Rigidbody, S
 from infernux.lib import Transform, Vector3
 from infernux.ui import UIButton, UIGroup, UIImage, UIProgressBar, UISlider, UIText
 
-from infernux_tween import ScrambleMode, shortcuts as S
+from infernux_tween import RotateMode, ScrambleMode, ShakeRandomnessMode, shortcuts as S
 from .TweenAuthoring import TweenAuthoring
 
 
@@ -79,6 +79,11 @@ _COMPATIBLE = {
 }
 
 
+_SNAPPING = {AnimationType.MOVE, AnimationType.LOCAL_MOVE, AnimationType.PUNCH_POSITION,
+             AnimationType.SHAKE_POSITION}
+_UNIFORM = {AnimationType.SCALE, AnimationType.SIZE}
+
+
 @add_component_menu("Animation/Tween Animation")
 class TweenAnimation(TweenAuthoring):
     _animation_target_override = None
@@ -90,26 +95,35 @@ class TweenAnimation(TweenAuthoring):
     material = serialized_field(default=None, field_type=FieldType.MATERIAL, display_name_key="tween.material",
                                 visible_when=lambda c: c.target_kind == TargetKind.MATERIAL)
     end_vector = serialized_field(default=(0.0, 1.0, 0.0), field_type=FieldType.VEC3, display_name_key="tween.end_vector",
-                                  visible_when=lambda c: c.animation_type in _VECTOR)
+        visible_when=lambda c: c.animation_type in _VECTOR and not (c.animation_type == AnimationType.SCALE and c.optional_bool0))
     end_color = serialized_field(default=[1.0, 1.0, 1.0, 1.0], field_type=FieldType.COLOR, display_name_key="tween.end_color",
                                  visible_when=lambda c: c.animation_type == AnimationType.COLOR)
     end_size = serialized_field(default=(100.0, 40.0), field_type=FieldType.VEC2, display_name_key="tween.end_size",
-                                visible_when=lambda c: c.animation_type == AnimationType.SIZE)
+        visible_when=lambda c: c.animation_type == AnimationType.SIZE and not c.optional_bool0)
     end_value: float = serialized_field(default=1.0, display_name_key="tween.end_value",
-                                        visible_when=lambda c: c.animation_type not in _VECTOR | {AnimationType.COLOR, AnimationType.SIZE, AnimationType.TEXT})
+        visible_when=lambda c: c.animation_type not in _VECTOR | {AnimationType.COLOR, AnimationType.SIZE, AnimationType.TEXT}
+        or c.animation_type in _UNIFORM and c.optional_bool0)
     end_text: str = serialized_field(default="", multiline=True, display_name_key="tween.end_text",
                                      visible_when=lambda c: c.animation_type == AnimationType.TEXT)
-    rich_text: bool = serialized_field(default=True, display_name_key="tween.rich_text",
-                                       visible_when=lambda c: c.animation_type == AnimationType.TEXT)
-    scramble_mode: ScrambleMode = serialized_field(default=ScrambleMode.NONE, display_name_key="tween.scramble_mode",
+    optional_bool0: bool = serialized_field(default=False, hidden=True)
+    optional_bool1: bool = serialized_field(default=True, display_name_key="tween.fade_out",
+        visible_when=lambda c: c.animation_type.name.startswith("SHAKE_"))
+    optional_rotation_mode: RotateMode = serialized_field(default=RotateMode.FAST, display_name_key="tween.rotation_mode",
+        enum_labels=["tween.rotation_mode."+e.name for e in RotateMode],
+        visible_when=lambda c: c.animation_type in (AnimationType.ROTATE, AnimationType.LOCAL_ROTATE))
+    optional_scramble_mode: ScrambleMode = serialized_field(default=ScrambleMode.NONE, display_name_key="tween.scramble_mode",
                                                     enum_labels=["tween.scramble."+e.name for e in ScrambleMode],
                                                     visible_when=lambda c: c.animation_type == AnimationType.TEXT)
-    scramble_chars: str = serialized_field(default="", display_name_key="tween.scramble_chars",
-                                           visible_when=lambda c: c.animation_type == AnimationType.TEXT and c.scramble_mode == ScrambleMode.CUSTOM)
+    optional_string: str = serialized_field(default="", display_name_key="tween.scramble_chars",
+        visible_when=lambda c: c.animation_type == AnimationType.TEXT and c.optional_scramble_mode == ScrambleMode.CUSTOM)
     property_name: str = serialized_field(default="baseColor", display_name_key="tween.material_property",
                                           visible_when=lambda c: c.target_kind == TargetKind.MATERIAL)
-    vibrato: int = serialized_field(default=10, range=(1, 100), slider=False, display_name_key="tween.vibrato",
+    optional_int0: int = serialized_field(default=10, range=(1, 100), slider=False, display_name_key="tween.vibrato",
                                     visible_when=lambda c: c.animation_type.name.startswith(("PUNCH_", "SHAKE_")))
+    optional_float0: float = serialized_field(default=1.0, hidden=True)
+    optional_shake_randomness_mode: ShakeRandomnessMode = serialized_field(default=ShakeRandomnessMode.FULL,
+        display_name_key="tween.randomness_mode", enum_labels=["tween.randomness_mode."+e.name for e in ShakeRandomnessMode],
+        visible_when=lambda c: c.animation_type.name.startswith("SHAKE_"))
     is_from: bool = serialized_field(default=False, display_name_key="tween.from",
                                      visible_when=lambda c: not c.animation_type.name.startswith(("PUNCH_", "SHAKE_")))
 
@@ -171,18 +185,31 @@ class TweenAnimation(TweenAuthoring):
         target, kind = self._resolve_target(preview, target_kind), self.animation_type
         shortcut = _SHORTCUTS[kind]
         if kind == AnimationType.TEXT:
-            return shortcut(target, self.end_text, self.duration, self.rich_text, self.scramble_mode,
-                            self.scramble_chars or None)
+            return shortcut(target, self.end_text, self.duration, self.optional_bool0, self.optional_scramble_mode,
+                            self.optional_string or None)
         if kind.name.startswith("SHAKE_"):
-            return shortcut(target, self.duration, Vector3(*self.end_vector), self.vibrato)
+            options = dict(vibrato=self.optional_int0, randomness=self.optional_float0,
+                           fade_out=self.optional_bool1, randomness_mode=self.optional_shake_randomness_mode)
+            if kind == AnimationType.SHAKE_POSITION:
+                options['snapping'] = self.optional_bool0
+            return shortcut(target, self.duration, Vector3(*self.end_vector), **options)
         if kind.name.startswith("PUNCH_"):
-            return shortcut(target, Vector3(*self.end_vector), self.duration, self.vibrato)
+            options = dict(vibrato=self.optional_int0, elasticity=self.optional_float0)
+            if kind == AnimationType.PUNCH_POSITION:
+                options['snapping'] = self.optional_bool0
+            return shortcut(target, Vector3(*self.end_vector), self.duration, **options)
         if kind == AnimationType.FLOAT:
             return shortcut(target, self.end_value, self.property_name, self.duration)
         end = self.end_vector if kind in _VECTOR else (self.end_color if kind == AnimationType.COLOR else
               self.end_size if kind == AnimationType.SIZE else self.end_value)
+        if kind in _UNIFORM and self.optional_bool0:
+            end = (self.end_value,) * (3 if kind == AnimationType.SCALE else 2)
         if target_kind == TargetKind.MATERIAL:
             return shortcut(target, end, self.property_name, self.duration)
+        if kind in (AnimationType.ROTATE, AnimationType.LOCAL_ROTATE):
+            return shortcut(target, end, self.duration, self.optional_rotation_mode)
+        if kind in (AnimationType.MOVE, AnimationType.LOCAL_MOVE):
+            return shortcut(target, end, self.duration, self.optional_bool0)
         return shortcut(target, end, self.duration)
 
     def _after_configure(self, tween):

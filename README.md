@@ -45,6 +45,12 @@ Instance controls include `play`, `pause`, `restart`, `rewind`, `goto`, `complet
 
 The installed plugin owns frame registrations; empty and fully paused groups do not perform idle updates. Editor Stop clears owned animations. `set_link(game_object, LinkBehaviour...)` handles owner lifetime, including paused roots. Coroutine and async wait methods use the engine coroutine service or the caller's existing asyncio loop.
 
+`delayed_call(delay, callback, ignore_time_scale=True)` returns a normal controllable tween. `eased_value(from_, to, lifetime_percentage, ease_type)` samples float or Vector3 values without creating a tween; it also accepts an `ease_curve`, an ease with `overshoot`, or an ease with `amplitude` and `period`. `stop_motion(motion_fps, ease=None)` wraps an Ease, AnimationCurve or four-argument ease function for `set_ease`. Its time steps use seconds and the last sample reaches the full duration.
+
+`virtual.float`, `virtual.int`, `virtual.vector2`, `virtual.vector3` and `virtual.color` use `(from_, to, duration, on_virtual_update)`. The last argument receives the sampled native value on each update. Assigning `on_update` on the returned tween replaces that callback. Native colors use four-float lists.
+
+`AxisConstraint` is a flag enum: `NONE=0`, `X=2`, `Y=4`, `Z=8`, `W=16`. Combine named flags with `|`; these same bits govern value, path and character tweens.
+
 ## Native targets
 
 Shortcuts cover Transform position/scale axes and Euler/quaternion rotation; native UI colors, size and Slider values; SpriteRenderer and LineRenderer colors; material color/float/vector properties; camera projection properties; lights; and audio volume/pitch. Rigidbody movement uses `move_position`/`move_rotation` in Fixed updates. Paths provide local/world coordinates, Linear/Catmull-Rom/Bezier, orientation, waypoint events, seek and Scene gizmos.
@@ -58,6 +64,20 @@ Native limitations are explicit: the engine currently has no writable camera asp
 ## Editor authoring
 
 Add **Tween Animation**, **Tween Path** or **Tween Visual Manager** from Animation. Targets use native references and fields. Paths use the native list and Scene position handles. Open **Animation / Tween** for reversible preview. Stop, Save, Undo, selection changes and entering Play restore authored values. Preview does not send gameplay events.
+
+`auto_generate` controls startup creation independently of `auto_play`. Set both to false to create and play explicitly through `create_tween(and_play=False)` and `do_play()`. The component's `tween` property exposes the current Tween; `get_tweens()` returns the active authored siblings. `is_speed_based` interprets duration as units per second for supported motions.
+
+Animation options retain their typed public fields. `optional_rotation_mode` is a RotateMode; `optional_shake_randomness_mode` is a ShakeRandomnessMode. The shared options appear with contextual Inspector labels:
+
+| Animation | Fields |
+| --- | --- |
+| Move / Local Move | `optional_bool0`: integer snapping |
+| Scale / Size | `optional_bool0`: uniform size from `end_value` |
+| Text | `optional_bool0`: rich text; `optional_scramble_mode` and `optional_string`: scrambling |
+| Punch | `optional_int0`: vibrato; `optional_float0`: elasticity; position also uses `optional_bool0` for snapping |
+| Shake | `optional_int0`: vibrato; `optional_float0`: randomness in degrees; `optional_bool1`: fade out; position also uses `optional_bool0` for snapping |
+
+Visual Manager has distinct `on_enable_behaviour` and `on_disable_behaviour` enum fields. Enable supports None, Play, Restart and Restart From Spawn Point; disable supports None, Pause, Rewind, Kill, Kill And Complete and Destroy GameObject. Spawn restart runs on the next component update, after the caller can place the newly enabled object, and rebases relative movement/path coordinates. Kill And Complete dispatches completion before killing. These actions control existing tweens and do not implicitly generate replacements. The Pooling System preset selects spawn restart/pause and retains the authored tweens while playing.
 
 Persistent On Start, Play, Update, Step Complete, Complete, Rewind, Kill and Tween Created lists use the engine's list/reference/Undo widgets and bind the exact component instance. Only representable primitive, GameObject and component arguments are offered. Unsupported annotations are not converted into string arguments. Replacing scripts invalidates cached method lists through the runtime epoch.
 
@@ -75,6 +95,8 @@ sequence.set_link(label.game_object)
 ```
 
 Character offsets, Euler angles and scales are real Vector3 values. Uniform scale accepts a float. Punch/Shake, per-corner XYZ shifts and character/span skew use the same native geometry and scheduler. Glyphs in one grapheme share a pivot. Public character operations ignore invisible or invalid characters; their tween factories return `None`.
+
+`TextTweenAnimator.target` is the read-only native UIText reference; `text_info` is its read-only TextLayout snapshot. `refresh()` replaces that snapshot and retires tweens using the old character indices.
 
 `range`, `character`, `word` and `line` are additional batch selections. Indexes address native graphemes, not UTF-16 code units. Public vectors follow Transform axes: positive Y up; the buffer converts to layout's positive Y down. Manual geometry, Effects and Appearance compose in that order. Use one Manual-layer controller per label. `reset()`/`dispose()` restore that layer, and a changed layout retires old-index tweens. Character changes share one native upload per manager update.
 

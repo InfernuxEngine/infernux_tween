@@ -6,7 +6,7 @@ from infernux.graph.ramp import AnimationCurve
 from infernux.lib import GameObject, SceneManager
 from infernux.ui.ui_event import UIEvent
 
-from infernux_tween import _default_manager, Ease, LoopType, TweenManager, UpdateType
+from infernux_tween import _default_manager, Ease, LoopType, Tween, TweenManager, UpdateType
 from infernux_tween.events import TweenCallback, invoke_callbacks
 
 
@@ -32,8 +32,10 @@ class TweenAuthoring(InxComponent):
     loop_type: LoopType = serialized_field(default=LoopType.RESTART, display_name_key="tween.loop_type", enum_labels=["tween.loop."+e.name for e in LoopType])
     clock: UpdateClock = serialized_field(default=UpdateClock.AUTO, display_name_key="tween.clock", enum_labels=["tween.clock."+e.name for e in UpdateClock])
     independent: bool = serialized_field(default=False, display_name_key="tween.independent")
+    auto_generate: bool = serialized_field(default=True, display_name_key="tween.auto_generate")
     auto_play: bool = serialized_field(default=True, display_name_key="tween.auto_play")
     auto_kill: bool = serialized_field(default=True, display_name_key="tween.auto_kill")
+    is_speed_based: bool = serialized_field(default=False, display_name_key="tween.speed_based")
     tween_id: str = serialized_field(default="", display_name_key="tween.id")
     relative: bool = serialized_field(default=False, display_name_key="tween.relative")
     on_start_entries: list = serialized_field(default=[], field_type=FieldType.LIST,
@@ -99,7 +101,7 @@ class TweenAuthoring(InxComponent):
         return self._target_object()
 
     def on_enable(self):
-        if SceneManager.instance().is_playing() and self._tween is None:
+        if self.auto_generate and SceneManager.instance().is_playing() and self._tween is None:
             self.create_tween(and_play=self.auto_play)
 
     def on_destroy(self):
@@ -132,10 +134,11 @@ class TweenAuthoring(InxComponent):
         tween = self._build(preview)
         if tween is None:
             self._tween = None
-            raise ValueError("The selected target has no matching animatable property")
+            return None
         try:
             tween.set_delay(self.delay).set_ease(self.curve if self.custom_ease else self.ease).set_loops(self.loops, self.loop_type)
             tween.set_relative(self.relative).set_auto_kill(False if preview else self.auto_kill)
+            tween.set_speed_based(self.is_speed_based)
             tween.set_target(self._group_target())
             if self.tween_id:
                 tween.set_id(self.tween_id)
@@ -176,7 +179,11 @@ class TweenAuthoring(InxComponent):
     def create_editor_preview(self):
         return self._create_tween(True, False, preview=True)
 
-    def get_tween(self): return self._tween
+    @property
+    def tween(self) -> Tween|None: return self._tween
+
+    @tween.setter
+    def tween(self, value: Tween|None): self._tween = value
 
     def get_tweens(self):
         return [component._tween for component in self.game_object.get_components(type(self))
@@ -285,6 +292,8 @@ class TweenAuthoring(InxComponent):
         scope.capture(self, "_tween", "_preview_manager", "_preview_registration", "_preview_tween")
         self._capture_preview(scope)
         tween = self._create_tween(True, preview=True)
+        if tween is None:
+            return None
         _default_manager._remove(tween)
         self._preview_manager = TweenManager()
         self._preview_manager.add(tween)

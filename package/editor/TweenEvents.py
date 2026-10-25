@@ -130,6 +130,22 @@ def _entry(ctx, component, field, index, entry, label_width):
 
 
 def draw_events(ctx, component):
+    if component.type_name == 'TweenAnimation':
+        from ..runtime.TweenAnimation import AnimationType, _SNAPPING, _UNIFORM
+        kind = component.animation_type
+        options = []
+        if kind in _SNAPPING | _UNIFORM | {AnimationType.TEXT}:
+            label = 'uniform' if kind in _UNIFORM else 'rich_text' if kind == AnimationType.TEXT else 'snapping'
+            options.append(('optional_bool0', label))
+        if kind.name.startswith(('PUNCH_', 'SHAKE_')):
+            options.append(('optional_float0', 'elasticity' if kind.name.startswith('PUNCH_') else 'randomness'))
+        fields = get_serialized_fields(type(component))
+        for name, label in options:
+            value = getattr(component, name)
+            result = render_serialized_field(ctx, '##'+name, translate('tween.'+label), fields[name], value,
+                                             max_label_w(ctx, [translate('tween.'+label)]))
+            if result != value:
+                ComponentCommandService.require().set_field(component, name, result)
     label_width = max_label_w(ctx, [translate('tween.callback_target'), translate('tween.callback_method')])
     for name in component._event_names:
         field = 'on_'+name+'_entries'

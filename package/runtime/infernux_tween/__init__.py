@@ -2,11 +2,11 @@
 from math import isfinite
 
 from .core import (
-    AutoPlay, AxisConstraint, LoopType, Sequence, Tween, Tweener, TweenManager,
-    TweenParams, UpdateType, _default_manager,
+    AutoPlay, AxisConstraint, LoopType, OnEnableBehaviour, OnDisableBehaviour,
+    Sequence, Tween, Tweener, TweenManager, TweenParams, UpdateType, VisualManagerPreset, _default_manager,
 )
 from .curve import EaseCurve
-from .ease import Ease
+from .ease import Ease, stop_motion
 from .link import LinkBehaviour
 from .motion import ShakeRandomnessMode, SpiralMode
 from .path import Path, PathMode, PathType, PathTween
@@ -14,6 +14,7 @@ from .rotation import RotateMode
 from .spring import Spring
 from .string import ScrambleMode
 from .text import SkewSpanMode, TextTweenAnimator
+from .virtual import delayed_call, eased_value
 from .shortcuts import Color2, CultureInfo
 from .shortcuts import (
     do_path,
@@ -145,6 +146,8 @@ def set_time_scale(value: float) -> None:
 
 __all__ = [
     'SkewSpanMode', 'do_blendable_punch_rotation', 'AutoPlay', 'AxisConstraint', 'Ease', 'EaseCurve',
+    'OnEnableBehaviour', 'OnDisableBehaviour', 'VisualManagerPreset',
+    'virtual', 'delayed_call', 'eased_value', 'stop_motion',
     'LinkBehaviour', 'LoopType', 'Path', 'PathMode', 'PathType', 'PathTween', 'RotateMode',
     'ScrambleMode', 'Sequence', 'ShakeRandomnessMode', 'SpiralMode', 'Spring', 'TextTweenAnimator',
     'Tween', 'Tweener', 'TweenManager', 'TweenParams', 'Color2', 'CultureInfo', 'UpdateType', 'add',

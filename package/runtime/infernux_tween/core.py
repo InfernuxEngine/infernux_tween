@@ -2,13 +2,14 @@
 
 from enum import Enum, IntFlag
 from math import floor, inf, isfinite, sqrt
-from typing import Callable, overload
+from typing import Callable, TypeVar, overload
 
 from infernux.graph.ramp import AnimationCurve
 
 from .ease import Ease, resolve_ease
 
 _UNSET = object()
+_Value = TypeVar('_Value')
 
 
 class LoopType(Enum):
@@ -33,10 +34,31 @@ class AutoPlay(Enum):
 
 class AxisConstraint(IntFlag):
     NONE = 0
-    X = 1
-    Y = 2
-    Z = 4
-    W = 8
+    X = 2
+    Y = 4
+    Z = 8
+    W = 16
+
+
+class OnEnableBehaviour(Enum):
+    NONE = 0
+    PLAY = 1
+    RESTART = 2
+    RESTART_FROM_SPAWN_POINT = 3
+
+
+class OnDisableBehaviour(Enum):
+    NONE = 0
+    PAUSE = 1
+    REWIND = 2
+    KILL = 3
+    KILL_AND_COMPLETE = 4
+    DESTROY_GAME_OBJECT = 5
+
+
+class VisualManagerPreset(Enum):
+    CUSTOM = 0
+    POOLING_SYSTEM = 1
 
 
 class Tween:
@@ -775,7 +797,7 @@ class Tweener(Tween):
                 if self._from_value is not _UNSET:
                     end = self._relative_value(current, end)
             if self._constraint or self._alpha_only:
-                channels = [value if (i == 3 if self._alpha_only else self._constraint & (1 << i)) else current[i]
+                channels = [value if (i == 3 if self._alpha_only else self._constraint & (2 << i)) else current[i]
                             for i, value in enumerate(start)]
                 start = self._value_type(channels) if self._sequence_value else self._value_type(*channels)
         return start, end
@@ -809,7 +831,7 @@ class Tweener(Tween):
         if self._alpha_only:
             return abs(self._delta[3])
         if self._constraint:
-            return sqrt(sum(float(value)**2 for index, value in enumerate(self._delta) if self._constraint & (1 << index)))
+            return sqrt(sum(float(value)**2 for index, value in enumerate(self._delta) if self._constraint & (2 << index)))
         return sqrt(sum(float(item)**2 for item in self._delta)) if self._sequence_value or hasattr(self._delta, "__iter__") else abs(self._delta)
 
     def change_start_value(self, new_start_value: object, new_duration: float=-1):
@@ -872,7 +894,7 @@ class Tweener(Tween):
                 components = list(value)
                 if self._constraint or self._alpha_only:
                     current = self._getter()
-                    components = [item if (index == 3 if self._alpha_only else self._constraint & (1 << index))
+                    components = [item if (index == 3 if self._alpha_only else self._constraint & (2 << index))
                                   else current[index] for index, item in enumerate(components)]
                 value = self._value_type(components) if self._sequence_value else type(value)(*components)
                 if self._snapping:
@@ -884,7 +906,7 @@ class Tweener(Tween):
     def _snap(self, value):
         if isinstance(value, (int, float)):
             return round(value)
-        values = [round(item) if not self._constraint or self._constraint & (1 << i) else item
+        values = [round(item) if not self._constraint or self._constraint & (2 << i) else item
                   for i, item in enumerate(value)]
         return self._value_type(values) if self._sequence_value else self._value_type(*values)
 
@@ -1064,7 +1086,7 @@ class _ArrayTweener(_VectorTweener):
         if self._constraint or self._snapping:
             current = self._getter()
             value = type(value)(*(round(v) if self._snapping else v for v in
-                                 (v if not self._constraint or self._constraint & (1 << i) else current[i]
+                                 (v if not self._constraint or self._constraint & (2 << i) else current[i]
                                   for i, v in enumerate(value))))
         self._setter(value)
 
@@ -1315,9 +1337,9 @@ class TweenManager:
         return tween
 
     @overload
-    def to(self, getter: Callable[[], object], setter: Callable[[object], None], end_value: object, duration: float): ...
+    def to(self, getter: Callable[[], _Value], setter: Callable[[_Value], None], end_value: _Value, duration: float) -> Tweener: ...
     @overload
-    def to(self, setter: Callable[[float], None], start_value: float, end_value: float, duration: float): ...
+    def to(self, setter: Callable[[_Value], None], start_value: _Value, end_value: _Value, duration: float) -> Tweener: ...
     def to(self, *args, **kwargs):
         virtual = ("start_value" in kwargs or (len(args) >= 2 and not callable(args[1]))
                    or (not args and "getter" not in kwargs))

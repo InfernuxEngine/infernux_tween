@@ -1,7 +1,10 @@
 """Analytic curves compiled once for normalized sampling."""
 
 from enum import Enum
-from math import asin, ceil, cos, pi, sin, sqrt
+from math import asin, ceil, cos, floor, pi, sin, sqrt
+from typing import Callable, overload
+
+from infernux.graph.ramp import AnimationCurve
 
 
 class Ease(Enum):
@@ -85,8 +88,33 @@ def _flash(t, count, weight, shape):
     return min(1.0, phase + (weighted - phase) * weight + correction)
 
 
+@overload
+def stop_motion(motion_fps: int, ease: Ease|None=None) -> Callable[[float, float, float, float], float]: ...
+@overload
+def stop_motion(motion_fps: int, anim_curve: AnimationCurve) -> Callable[[float, float, float, float], float]: ...
+@overload
+def stop_motion(motion_fps: int, custom_ease: Callable[[float, float, float, float], float]) -> Callable[[float, float, float, float], float]: ...
+def stop_motion(motion_fps, ease=None, *, anim_curve=None, custom_ease=None):
+    if type(motion_fps) is not int or motion_fps <= 0:
+        raise ValueError('motion_fps must be a positive integer')
+    if sum(value is not None for value in (ease, anim_curve, custom_ease)) > 1:
+        raise TypeError('provide one ease, anim_curve or custom_ease')
+    from .core import _default_manager
+    source = next((value for value in (ease, anim_curve, custom_ease) if value is not None), _default_manager.default_ease_type)
+    configuration, sample = None, None
+
+    def snapped(time, duration, amplitude, period):
+        nonlocal configuration, sample
+        key = duration, amplitude, period
+        if configuration != key:
+            sample = resolve_ease(source, amplitude, period, lambda: duration)
+            configuration = key
+        time = duration if time >= duration else floor(time*motion_fps)/motion_fps
+        return sample(time/duration if duration else 1.0)
+    return snapped
+
+
 def resolve_ease(ease, overshoot_or_amplitude=1.70158, period=0.0, duration=None):
-    from infernux.graph.ramp import AnimationCurve
     from .curve import EaseCurve
     if isinstance(ease, AnimationCurve):
         return EaseCurve(ease.keys, ease.pre_wrap, ease.post_wrap)

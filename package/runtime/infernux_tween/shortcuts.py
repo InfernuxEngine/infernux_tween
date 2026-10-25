@@ -59,7 +59,7 @@ def _axis(target, name, axis, end_value, duration, snapping=False):
                 start[0] = target.position
             return start[0]
 
-    constraint = AxisConstraint(1 << axis)
+    constraint = AxisConstraint(2 << axis)
     tween = _default_manager.to_axis(getter, write, end_value, duration, constraint).set_options(
         constraint, snapping).set_target(target)
     if isinstance(target, Rigidbody):

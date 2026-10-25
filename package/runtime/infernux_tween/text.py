@@ -5,7 +5,7 @@ from weakref import WeakSet, WeakValueDictionary
 
 import numpy as np
 from infernux.ui import UIText
-from infernux.lib import TextGeometryLayer, Vector3, quatf
+from infernux.lib import TextGeometryLayer, TextLayout, Vector3, quatf
 
 from .core import _default_manager, _ColorTweener, _FloatTweener, _VectorTweener, Tweener, _UNSET
 from .motion import _punch_tween, _shake_tween
@@ -83,7 +83,7 @@ class _CharacterTween(Tweener):
                     end = self._relative_value(current, end)
             if self._constraint or self._alpha_only:
                 axes = np.arange(current.shape[-1])
-                mask = axes == 3 if self._alpha_only else (self._constraint & (1 << axes)) != 0
+                mask = axes == 3 if self._alpha_only else (self._constraint & (2 << axes)) != 0
                 start = np.where(mask, start, current)
         return start, end
 
@@ -100,7 +100,7 @@ class _CharacterTween(Tweener):
             distance = np.abs(delta)
         else:
             if self._constraint:
-                delta = delta[..., (self._constraint & (1 << np.arange(delta.shape[-1]))) != 0]
+                delta = delta[..., (self._constraint & (2 << np.arange(delta.shape[-1]))) != 0]
             distance = np.linalg.norm(delta, axis=-1)
         return float(np.max(distance, initial=0))
 
@@ -108,7 +108,7 @@ class _CharacterTween(Tweener):
         value = _array(value)
         if not self._constraint:
             return np.rint(value)
-        mask = (self._constraint & (1 << np.arange(value.shape[-1]))) != 0
+        mask = (self._constraint & (2 << np.arange(value.shape[-1]))) != 0
         return np.where(mask, np.rint(value), value)
 
     def set_options(self, *args, **kwargs):
@@ -123,7 +123,7 @@ class _CharacterTween(Tweener):
             value = np.rint(value)
         if self._channel not in ("skews", "alphas") and (self._constraint or self._alpha_only):
             axes = np.arange(value.shape[-1])
-            mask = axes == 3 if self._alpha_only else (self._constraint & (1 << axes)) != 0
+            mask = axes == 3 if self._alpha_only else (self._constraint & (2 << axes)) != 0
             value = np.where(mask, value, self._getter())
         self._setter(value)
 
@@ -149,7 +149,7 @@ class TextTweenAnimator:
     _instances = WeakValueDictionary()
 
     def __init__(self, target: UIText):
-        self.text = target
+        self._target = target
         self._tweens = WeakSet()
         self._disposed = False
         self.refresh()
@@ -157,6 +157,12 @@ class TextTweenAnimator:
         self._instances[id(target)] = self
         if previous is not None:
             previous.dispose()
+
+    @property
+    def target(self) -> UIText: return self._target
+
+    @property
+    def text_info(self) -> TextLayout: return self._text_info
 
     @staticmethod
     def dispose_instance_for(target: UIText) -> None:
@@ -174,26 +180,26 @@ class TextTweenAnimator:
         self._kill_tweens()
         if self._disposed:
             return
-        self.layout = self.text.get_text_layout()
-        self.buffer = self.text.create_character_buffer()
+        self._text_info = self.target.get_text_layout()
+        self.buffer = self.target.create_character_buffer()
         count = self.buffer.character_count
         self._views = {name: np.zeros((count, 3), dtype=np.float32) for name in ("offsets", "rotations")}
-        glyphs = self.layout.glyphs
+        glyphs = self.text_info.glyphs
         self._glyph_colors = np.array([glyphs[char.glyph_start].color if char.glyph_start < char.glyph_end else (1, 1, 1, 1)
-                                       for char in self.layout.characters], dtype=np.float32).reshape(count, 4)
-        colors = np.repeat((self._glyph_colors*_array(self.text.color))[:, None, :], 4, axis=1)
+                                       for char in self.text_info.characters], dtype=np.float32).reshape(count, 4)
+        colors = np.repeat((self._glyph_colors*_array(self.target.color))[:, None, :], 4, axis=1)
         self._views.update(scales=np.ones((count, 3), dtype=np.float32),
                            vertex_offsets=np.zeros((count, 4, 3), dtype=np.float32),
                            skews=self.buffer.skews, colors=colors, alphas=colors[:, :, 3])
         self._dirty_transforms = np.zeros(count, dtype=bool)
-        self._bounds = np.asarray([char.bounds for char in self.layout.characters], dtype=np.float32).reshape(count, 4)
+        self._bounds = np.asarray([char.bounds for char in self.text_info.characters], dtype=np.float32).reshape(count, 4)
         self._visible = np.array([any(glyph.visible for glyph in glyphs[char.glyph_start:char.glyph_end])
-                                  for char in self.layout.characters], dtype=bool)
+                                  for char in self.text_info.characters], dtype=bool)
         self._disposed = False
-        self.text.reset_character_data(TextGeometryLayer.Manual)
+        self.target.reset_character_data(TextGeometryLayer.Manual)
 
     def _check_layout(self):
-        if not self._disposed and self.text.get_text_layout() is not self.layout:
+        if not self._disposed and self.target.get_text_layout() is not self.text_info:
             self.refresh()
 
     def range(self, start=0, count=None):
@@ -207,14 +213,14 @@ class TextTweenAnimator:
 
     def word(self, index):
         self._check_layout()
-        word = self.layout.words[index]
+        word = self.text_info.words[index]
         return self.range(word.character_start, word.character_end-word.character_start)
 
     def line(self, index):
         self._check_layout()
-        if not 0 <= index < len(self.layout.lines):
+        if not 0 <= index < len(self.text_info.lines):
             raise IndexError(index)
-        indices = np.array([i for i, char in enumerate(self.layout.characters) if char.line == index], dtype=np.intp)
+        indices = np.array([i for i, char in enumerate(self.text_info.characters) if char.line == index], dtype=np.intp)
         return TextTweenSelection(self, indices)
 
     def _valid(self, char_index):
@@ -246,7 +252,7 @@ class TextTweenAnimator:
 
     def _track(self, tween):
         self._tweens.add(tween)
-        return _default_manager.add(tween).set_target(self.text)
+        return _default_manager.add(tween).set_target(self.target)
 
     def _char_tween(self, char_index, channel, factory, color_mode=None):
         if not self._valid(char_index):
@@ -262,7 +268,7 @@ class TextTweenAnimator:
     def apply(self):
         if self._disposed:
             return self
-        if self.text.get_text_layout() is not self.layout:
+        if self.target.get_text_layout() is not self.text_info:
             self.refresh()
             return self
         indices = np.flatnonzero(self._dirty_transforms)
@@ -271,7 +277,7 @@ class TextTweenAnimator:
             self.buffer.affine_transforms[indices, :, :3] = linear*_UI_AXES[:, None]*_UI_AXES[None, :]
             self.buffer.affine_transforms[indices, :, 3] = self._views["offsets"][indices]*_UI_AXES
             self._dirty_transforms[indices] = False
-        self.text.set_character_data(self.buffer, TextGeometryLayer.Manual)
+        self.target.set_character_data(self.buffer, TextGeometryLayer.Manual)
         return self
 
     def reset(self) -> None:
@@ -283,22 +289,22 @@ class TextTweenAnimator:
         for channel in ("offsets", "rotations", "vertex_offsets"):
             self._views[channel].fill(0)
         self._views["scales"].fill(1)
-        self._views["colors"][:] = self._glyph_colors[:, None, :]*_array(self.text.color)
+        self._views["colors"][:] = self._glyph_colors[:, None, :]*_array(self.target.color)
         self._dirty_transforms.fill(False)
         self.buffer.reset()
-        self.text.reset_character_data(TextGeometryLayer.Manual)
+        self.target.reset_character_data(TextGeometryLayer.Manual)
 
     def dispose(self) -> None:
         if self._disposed:
             return
         self._disposed = True
-        key = id(self.text)
+        key = id(self.target)
         owned = self._instances.get(key) is self
         if owned:
             self._instances.pop(key)
         self._kill_tweens()
         if owned and key not in self._instances:
-            self.text.reset_character_data(TextGeometryLayer.Manual)
+            self.target.reset_character_data(TextGeometryLayer.Manual)
 
     def _get_vector(self, channel, char_index):
         return Vector3(*self._views[channel][char_index]) if self._valid(char_index) else Vector3(0, 0, 0)
@@ -313,7 +319,7 @@ class TextTweenAnimator:
     def get_char_scale(self, char_index: int) -> Vector3: return self._get_vector("scales", char_index)
     def _read_colors(self, selection):
         colors = self._views["colors"][selection].copy()
-        base = self._glyph_colors[selection]*_array(self.text.color)
+        base = self._glyph_colors[selection]*_array(self.target.color)
         flags = self.buffer.color_overrides[selection].astype(np.uint8)
         colors[..., :3] = np.where((flags & 1)[..., None, None], colors[..., :3], base[..., None, :3])
         colors[..., 3] = np.where((flags & 2)[..., None], colors[..., 3], base[..., 3, None])

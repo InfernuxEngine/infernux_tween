@@ -59,6 +59,10 @@ def text():
 def test_character_and_range_sequence_share_one_upload_per_update(text):
     target, uploads, resets = text
     animator = TextTweenAnimator(target)
+    assert animator.target is target and animator.text_info is target.layout
+    for property_name in ('target', 'text_info'):
+        with pytest.raises(AttributeError):
+            setattr(animator, property_name, None)
     sequence = tween_api.sequence().set_auto_kill(False)
     for index in (0, 1):
         sequence.join(animator.do_offset_char(index, Vector3(10, 20, 30), 1).set_ease(Ease.LINEAR))
@@ -118,6 +122,13 @@ def test_character_group_explicit_from_and_value_changes_keep_one_shared_buffer(
     assert np.all(animator.buffer.affine_transforms[:, :, :3] == np.eye(3))
     assert set(uploads) == {TextGeometryLayer.Manual}
     tween.kill()
+    from infernux_tween import AxisConstraint
+    axes = animator.range(0, 2).do_offset(Vector3(100, 8, 100), 4).set_options(AxisConstraint(4)).set_speed_based().set_ease(Ease.LINEAR)
+    axes.force_init()
+    assert axes.duration() == 2
+    axes.goto(0.5)
+    assert np.all(animator.buffer.affine_transforms[:2, :, 3] == (0, -2, 0))
+    axes.kill()
     snapped = animator.range(0, 2).do_offset(Vector3(2, 4, 6), 1).set_options(True).from_(Vector3(0.2, 0.6, 1.2))
     assert np.all(animator.buffer.affine_transforms[:2, :, 3] == (0, -1, 1))
     snapped.kill()
