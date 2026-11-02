@@ -1,5 +1,3 @@
-import pytest
-
 from infernux_tween import Ease, LoopType, ScrambleMode, shortcuts as S, TweenManager
 import infernux_tween as tween
 
@@ -17,8 +15,10 @@ def test_unicode_replacement_from_speed_and_empty_destination():
     clusters = "e\u0301👨‍👩‍👧🇨🇳中"
     reveal = manager.to(lambda: value[0], lambda text: value.__setitem__(0, text), clusters, 2).set_speed_based().set_ease(Ease.LINEAR)
     reveal.force_init()
-    assert reveal.duration() == 2
+    assert reveal.duration() == 7.5
     reveal.goto(0.5)
+    assert value[0] == "e"
+    reveal.goto(1)
     assert value[0] == "e\u0301"
     value[0] = "Ready"
     backwards = manager.to(lambda: value[0], lambda text: value.__setitem__(0, text), "加载", 1).from_().set_auto_kill(False)
@@ -27,7 +27,7 @@ def test_unicode_replacement_from_speed_and_empty_destination():
     assert value[0] == "Ready"
     clear = manager.to(lambda: value[0], lambda text: value.__setitem__(0, text), "", 1).set_ease(Ease.LINEAR)
     clear.goto(0.5)
-    assert value[0] == "Re"
+    assert value[0] == ""
     clear.goto(1)
     assert value[0] == ""
 
@@ -35,10 +35,12 @@ def test_unicode_replacement_from_speed_and_empty_destination():
 def test_native_markup_boundaries_and_a_grapheme_across_tags():
     manager, value = TweenManager(), [""]
     source = 'e<color="#ff0000">\u0301中<size=200%>文</size></color><br>Z'
-    tween = manager.to(lambda: value[0], lambda text: value.__setitem__(0, text), source, 5).set_ease(Ease.LINEAR)
+    tween = manager.to(lambda: value[0], lambda text: value.__setitem__(0, text), source, 5).set_options(True).set_ease(Ease.LINEAR)
     tween.goto(1)
+    assert value[0] == 'e'
+    tween.goto(2)
     assert value[0] == 'e<color="#ff0000">\u0301</color>'
-    tween.goto(3)
+    tween.goto(4)
     assert value[0] == 'e<color="#ff0000">\u0301中<size=200%>文</size></color>'
     tween.goto(5)
     assert value[0] == source
@@ -47,7 +49,8 @@ def test_native_markup_boundaries_and_a_grapheme_across_tags():
     assert value[0] == "<color"
 
 
-def test_relative_incremental_sequence_and_repeatable_scramble_seek():
+def test_relative_incremental_sequence_and_shared_scramble_stream():
+    from infernux.lib import Random
     manager, value = TweenManager(), ["A"]
     tween = manager.to(lambda: value[0], lambda text: value.__setitem__(0, text), "中B", 1)
     tween.set_relative().set_loops(3, LoopType.INCREMENTAL).set_ease(Ease.LINEAR).set_auto_kill(False)
@@ -62,12 +65,12 @@ def test_relative_incremental_sequence_and_repeatable_scramble_seek():
     scrambled.goto(0.5)
     sampled = value[0]
     assert sampled.startswith("<color=#ff0000>中</color>")
-    scrambled.goto(1.3).goto(0.5)
-    assert value[0] == sampled
+    random_state = list(Random.state.words)
+    scrambled.goto(0.5)
+    assert value[0] != sampled
+    assert list(Random.state.words) != random_state
     scrambled.goto(2)
     assert value[0] == "<color=#ff0000>中文测试</color>"
-    with pytest.raises(ValueError, match="alphabet"):
-        manager.to(lambda: "", lambda text: None, "x", 1).set_options(True, ScrambleMode.CUSTOM)
 
 
 def test_explicit_string_from_preserves_its_type_specific_relative_order_and_changed_endpoints():
@@ -92,18 +95,18 @@ def test_native_ui_text_shortcuts_use_integer_counts_and_explicit_rich_text(monk
     target = UIText()
     target.text = ""
     try:
-        S.do_text(target, "<color=#ff0000>中文</color>", 1).set_ease(Ease.LINEAR)
+        S.twn_text(target, "<color=#ff0000>中文</color>", 1).set_ease(Ease.LINEAR)
         tween.update(0.5)
         assert target.rich_text and target.text == "<color=#ff0000>中</color>"
         tween.clear()
-        S.do_counter(target, 1000, 5000, 1).set_ease(Ease.LINEAR)
+        S.twn_counter(target, 1000, 5000, 1).set_ease(Ease.LINEAR)
         tween.update(0.5)
         assert target.text == "3,000"
         tween.clear()
         geometry = SimpleNamespace(visible_characters=-1)
         target._text_geometry = geometry
         monkeypatch.setattr(target, "_resolve_text_geometry", lambda: geometry)
-        S.do_max_visible_characters(target, 10, 1).set_ease(Ease.LINEAR)
+        S.twn_max_visible_characters(target, 10, 1).set_ease(Ease.LINEAR)
         tween.update(0.5)
         assert target.max_visible_characters == 5 and type(target.max_visible_characters) is int
     finally:

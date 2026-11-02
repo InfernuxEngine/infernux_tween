@@ -3,46 +3,40 @@ import numpy as np
 from infernux import editor
 from infernux.editor import EditorPanel, PanelInteractionDescriptor, editor_panel, translate
 from infernux.engine.interaction import SelectionService
-from infernux.engine.interaction.components import ComponentCommandService
 from infernux.engine.interaction.handles import register_handle_provider
-from infernux.engine.interaction.previews import close_editor_previews
 from infernux.gizmos import Gizmos
 from infernux.lib import SceneManager
 from infernux.lifecycle import InxPreload
 
 
+from .TweenPathEditor import draw_inspector, waypoint_handle
+
+
 _context = None
 
 
-def _waypoint_handle(ctx, component, index):
-    before = []
-
-    def begin(_value):
-        close_editor_previews()
-        before[:] = [tuple(p) for p in component.waypoints]
-
-    def changed(value):
-        points = list(component.waypoints)
-        points[index] = component.waypoint_from_world(value)
-        component.waypoints = points
-
-    def commit(_value):
-        after = list(component.waypoints)
-        component.waypoints = list(before)
-        ComponentCommandService.require().set_field(component, "waypoints", after,
-                                                    description=translate("tween.move_waypoint"))
-
-    def cancel(_value):
-        if component.is_valid:
-            component.waypoints = list(before)
-
-    ctx.position(f"path-{component.component_id}-{index}", component.world_waypoint(index), changed,
-                 on_begin=begin, on_commit=commit, on_cancel=cancel)
+def _report_play_state(event):
+    from infernux.engine.play_mode import PlayModeState
+    from infernux_tween import _default_manager
+    if event.new_state == PlayModeState.ENTERING:
+        from infernux_tween import TweenEditorPreview
+        TweenEditorPreview.stop(reset_tween_targets=True)
+        _default_manager._reset_editor_report()
+    elif (event.new_state == PlayModeState.EDIT
+          and event.old_state in (PlayModeState.PLAYING, PlayModeState.PAUSED, PlayModeState.RESTORING)
+          and _default_manager.show_editor_report):
+        from infernux.debug import Debug
+        report = _default_manager.get_editor_report()
+        Debug.log("Tween Play report: peak roots "
+                  f"{report['peak_tweeners']} tweeners / {report['peak_sequences']} sequences; "
+                  f"{report['safe_mode_errors']} handled errors")
 
 
 def _draw_paths(ctx):
     if SceneManager.instance().is_playing():
         from infernux_tween import PathTween, _default_manager
+        if not _default_manager.draw_gizmos:
+            return
         previous = Gizmos.color
         try:
             for path in _default_manager._matching():
@@ -65,28 +59,44 @@ def _draw_paths(ctx):
         for component in obj.get_components("TweenPath"):
             if component._preview_manager is not None:
                 continue
-            points = component.draw_points()
+            points = getattr(component, "_editor_frozen_draw_points", None)
+            if points is None:
+                try:
+                    points = component.get_world_draw_points()
+                except ValueError:
+                    points = ()  # Allow editing an incomplete Bezier route.
             if len(points) > 1:
                 previous = Gizmos.color
-                Gizmos.color = (0.95, 0.7, 0.3)
+                Gizmos.color = tuple(component.path_color[:3])
                 try:
                     indices = np.column_stack((np.arange(len(points)-1), np.arange(1, len(points))))
                     Gizmos.draw_lines(np.asarray(points, dtype=np.float32), indices)
                 finally:
                     Gizmos.color = previous
             for index in range(len(component.waypoints)):
-                _waypoint_handle(ctx, component, index)
+                waypoint_handle(ctx, component, index)
 
 
 class TweenTools(InxPreload):
     def preload(self, context):
         global _context
         _context = context
+        from infernux_tween import TweenEditorPreview
+        context.add_cleanup(lambda: TweenEditorPreview.stop(reset_tween_targets=True))
+        from infernux.engine.play_mode import PlayModeManager
+        play_mode = PlayModeManager.instance()
+        if play_mode is not None:
+            play_mode.add_state_change_listener(_report_play_state)
+            context.add_cleanup(lambda: play_mode.remove_state_change_listener(_report_play_state))
         registration = register_handle_provider("infernux.tween.paths", _draw_paths)
         context.add_cleanup(registration.close)
-        from infernux.engine.ui.inspector_components import register_py_component_extra_renderer
+        from infernux.engine.ui.inspector_components import (
+            register_py_component_extra_renderer, register_py_component_renderer,
+        )
         from .TweenEvents import draw_events, _cached_methods
-        for name in ('TweenAnimation', 'TweenPath'):
+        register_py_component_renderer('TweenPath', draw_inspector)
+        context.add_cleanup(lambda: register_py_component_renderer('TweenPath', None))
+        for name in ('TweenAnimation',):
             register_py_component_extra_renderer(name, draw_events)
             context.add_cleanup(lambda name=name: register_py_component_extra_renderer(name, None))
         context.add_cleanup(_cached_methods.cache_clear)
@@ -133,8 +143,10 @@ class TweenPanel(EditorPanel):
         self._stop()
         scope = _context.create_preview()
         try:
+            from infernux_tween import TweenInspectorMode
             for component in self._components:
-                component.begin_preview(scope)
+                if getattr(component, "inspector_mode", None) != TweenInspectorMode.ONLY_PATH:
+                    component.begin_preview(scope)
         except BaseException:
             scope.close()
             raise
@@ -146,6 +158,12 @@ class TweenPanel(EditorPanel):
         ctx.label(translate("tween.diagnostics").format(**diagnostics))
         ctx.label(" / ".join(translate("tween.clock."+phase)+": "+str(counts["playing"])
                              for phase, counts in diagnostics["phases"].items()))
+        settings = _default_manager._settings
+        if settings is not None:
+            if settings.show_playing_tweens:
+                self._draw_tweens(ctx, _default_manager.playing_tweens(), "▶")
+            if settings.show_paused_tweens:
+                self._draw_tweens(ctx, _default_manager.paused_tweens(), "Ⅱ")
         if any(not c.is_valid for c in self._components):
             self._stop()
             self._bind_selection()
@@ -158,6 +176,8 @@ class TweenPanel(EditorPanel):
         if self.services.play_mode_manager.is_playing:
             ctx.label(translate("tween.edit_hint"))
             return
+        if settings is not None and not settings.show_preview_panel:
+            return
         if ctx.button(translate("tween.preview")):
             editor.defer(self._start, description=translate("tween.preview"))
         ctx.same_line()
@@ -166,8 +186,19 @@ class TweenPanel(EditorPanel):
         if self._scope is not None and not self._scope.closed:
             if ctx.button(translate("tween.pause")):
                 for component in self._components:
-                    component.do_pause()
+                    component.twn_pause()
             ctx.same_line()
             if ctx.button(translate("tween.play")):
                 for component in self._components:
-                    component.do_play()
+                    component.twn_play()
+
+    @staticmethod
+    def _draw_tweens(ctx, handles, prefix):
+        for handle in handles or ():
+            if handle.string_id is not None:
+                identity = handle.string_id
+            elif handle.int_id != -999:
+                identity = handle.int_id
+            else:
+                identity = handle.id if handle.id is not None else type(handle).__name__
+            ctx.label(f"{prefix} {identity}: {handle.elapsed():.3f} / {handle.duration():.3f}")

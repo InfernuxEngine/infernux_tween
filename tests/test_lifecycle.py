@@ -47,19 +47,19 @@ def test_restart_from_complete_callback_keeps_the_tween_alive():
         assert value[0] == 0.5
 
 
-def test_start_callback_seek_replaces_the_original_frame_sample():
+def test_rewind_or_restart_at_start_preserves_the_captured_frame_step():
     for action in ("rewind", "restart"):
         manager, value, events = TweenManager(), [0.0], []
         tween = manager.to(lambda: value[0], lambda item: value.__setitem__(0, item), 10.0, 1)
         tween.set_ease(Ease.LINEAR).on_start(lambda: getattr(tween, action)())
         tween.on_play(lambda: events.append("play"))
         manager.update(0.5)
-        assert tween.is_active() and tween.elapsed() == 0 and value[0] == 0
+        assert tween.is_active() and tween.elapsed() == .5 and value[0] == 5
         assert tween.is_playing() == (action == "restart")
-        assert events == (["play"] if action == "restart" else [])
+        assert events == ["play"]
         tween.play()
         manager.update(0.25)
-        assert value[0] == 2.5 and events == ["play"]
+        assert value[0] == 7.5 and events == (["play", "play"] if action == "rewind" else ["play"])
 
 
 def test_target_and_id_controls_ignore_nested_tweens_and_allow_callback_mutation():

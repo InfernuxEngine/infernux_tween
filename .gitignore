@@ -3,3 +3,16 @@ __pycache__/
 .venv/
 out/
 *.pyc
+
+# Local validation corpora, samplers and comparison suites are not published.
+/tests/fixtures/
+/tests/tools/
+/tests/test_*_reference.py
+/tests/test_reference_*.py
+/tests/test_api_inventory.py
+/tests/test_custom_plugins.py
+/tests/test_native_tween_numerics.py
+/tests/test_nested_failures.py
+/tests/test_pro_path_editor.py
+/tests/test_rect_offset_tweens.py
+/tests/test_rect_tweens.py

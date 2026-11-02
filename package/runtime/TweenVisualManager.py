@@ -24,7 +24,7 @@ class TweenVisualManager(InxComponent):
         for component in self.game_object.get_components(TweenAuthoring):
             if component.tween is None or not component.tween.is_active():
                 continue
-            group = (id(component._group_target()), type(component) if method == 'do_rewind' else None)
+            group = (id(component._group_target()), type(component) if method == 'twn_rewind' else None)
             if group not in groups:
                 groups.add(group)
                 getattr(component, method)()
@@ -42,7 +42,7 @@ class TweenVisualManager(InxComponent):
         if action == OnEnableBehaviour.RESTART_FROM_SPAWN_POINT:
             self._restart_pending = True
         elif action != OnEnableBehaviour.NONE:
-            self._apply('do_'+action.name.lower())
+            self._apply('twn_'+action.name.lower())
 
     def update(self, delta_time):
         if self._restart_pending:
@@ -50,7 +50,7 @@ class TweenVisualManager(InxComponent):
             for component in self.game_object.get_components(TweenAuthoring):
                 if component.relative and component.tween is not None and component.tween.is_active():
                     component._restart_from_here()
-            self._apply('do_restart')
+            self._apply('twn_restart')
 
     def on_disable(self):
         self._restart_pending = False
@@ -58,10 +58,10 @@ class TweenVisualManager(InxComponent):
             return
         action = self.on_disable_behaviour
         if action == OnDisableBehaviour.KILL_AND_COMPLETE:
-            self._apply('do_complete')
-            self._apply('do_kill')
+            self._apply('twn_complete')
+            self._apply('twn_kill')
         elif action == OnDisableBehaviour.DESTROY_GAME_OBJECT:
-            self._apply('do_kill')
+            self._apply('twn_kill')
             self.game_object.scene.destroy_game_object(self.game_object)
         elif action != OnDisableBehaviour.NONE:
-            self._apply('do_'+action.name.lower())
+            self._apply('twn_'+action.name.lower())

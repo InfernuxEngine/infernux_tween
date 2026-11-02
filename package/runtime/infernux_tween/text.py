@@ -33,8 +33,9 @@ def _array(value):
 
 
 def _rotation_matrices(eulers):
-    sx, sy, sz = np.sin(np.deg2rad(eulers)).T
-    cx, cy, cz = np.cos(np.deg2rad(eulers)).T
+    radians = np.deg2rad(eulers)
+    sx, sy, sz = np.sin(radians).T
+    cx, cy, cz = np.cos(radians).T
     return np.stack((cy*cz+sy*sx*sz, -cy*sz+sy*sx*cz, sy*cx,
                      cx*sz, cx*cz, -sx,
                      -sy*cz+cy*sx*sz, sy*sz+cy*sx*cz, cy*cx), axis=-1).reshape(-1, 3, 3)
@@ -43,6 +44,7 @@ def _rotation_matrices(eulers):
 class _CharacterTween(Tweener):
     def __init__(self, animator, channel, selection, to, duration):
         self._animator, self._channel, self._selection = animator, channel, selection
+        self._from_value_keyword = 'from_alpha_value' if channel == 'colors' else 'from_value'
         def read():
             if channel in ("colors", "alphas"):
                 colors = animator._read_colors(selection)
@@ -81,11 +83,15 @@ class _CharacterTween(Tweener):
                 start = self._relative_value(current, start)
                 if value is not _UNSET:
                     end = self._relative_value(current, end)
-            if self._constraint or self._alpha_only:
-                axes = np.arange(current.shape[-1])
-                mask = axes == 3 if self._alpha_only else (self._constraint & (2 << axes)) != 0
-                start = np.where(mask, start, current)
         return start, end
+
+    def _from_output(self, from_value):
+        if not (self._constraint or self._alpha_only):
+            return self._start
+        current = self._end if from_value is _UNSET else self._getter()
+        axes = np.arange(self._start.shape[-1])
+        mask = axes == 3 if self._alpha_only else (self._constraint & (2 << axes)) != 0
+        return np.where(mask, self._start, current)
 
     def _set_values(self, start, end):
         shape = self._animator._views[self._channel][self._selection].shape
@@ -104,9 +110,9 @@ class _CharacterTween(Tweener):
             distance = np.linalg.norm(delta, axis=-1)
         return float(np.max(distance, initial=0))
 
-    def _snap(self, value):
+    def _snap(self, value, *, all_channels=False):
         value = _array(value)
-        if not self._constraint:
+        if all_channels or not self._constraint:
             return np.rint(value)
         mask = (self._constraint & (2 << np.arange(value.shape[-1]))) != 0
         return np.where(mask, np.rint(value), value)
@@ -117,7 +123,6 @@ class _CharacterTween(Tweener):
         return option_type.set_options(self, *args, **kwargs)
 
     def _apply(self, progress, cycle, previous, callbacks):
-        self._initialize()
         value = self._start+self._delta*(self._ease(progress)+self._incremental_cycles(cycle))
         if self._snapping:
             value = np.rint(value)
@@ -136,13 +141,13 @@ class TextTweenSelection:
     def _tween(self, channel, to, duration):
         return self.animator._track(_CharacterTween(self.animator, channel, self.selection, to, duration))
 
-    def do_offset(self, to, duration): return self._tween("offsets", to, duration)
-    def do_rotate(self, to, duration): return self._tween("rotations", to, duration)
-    def do_scale(self, to, duration): return self._tween("scales", to, duration)
-    def do_skew(self, to, duration): return self._tween("skews", to, duration)
-    def do_color(self, to, duration): return self._tween("colors", to, duration)
-    def do_fade(self, to, duration): return self._tween("alphas", to, duration)
-    def do_vertices(self, to, duration): return self._tween("vertex_offsets", to, duration)
+    def twn_offset(self, to, duration): return self._tween("offsets", to, duration)
+    def twn_rotate(self, to, duration): return self._tween("rotations", to, duration)
+    def twn_scale(self, to, duration): return self._tween("scales", to, duration)
+    def twn_skew(self, to, duration): return self._tween("skews", to, duration)
+    def twn_color(self, to, duration): return self._tween("colors", to, duration)
+    def twn_fade(self, to, duration): return self._tween("alphas", to, duration)
+    def twn_vertices(self, to, duration): return self._tween("vertex_offsets", to, duration)
 
 
 class TextTweenAnimator:
@@ -150,6 +155,7 @@ class TextTweenAnimator:
 
     def __init__(self, target: UIText):
         self._target = target
+        self._commit_key = object()
         self._tweens = WeakSet()
         self._disposed = False
         self.refresh()
@@ -248,7 +254,7 @@ class TextTweenAnimator:
             while tween._parent is not None:
                 tween = tween._parent
             manager = tween._owner or manager
-        manager._defer_commit(self.apply)
+        manager._defer_commit(self)
 
     def _track(self, tween):
         self._tweens.add(tween)
@@ -337,24 +343,24 @@ class TextTweenAnimator:
         if self._valid(char_index):
             self._write("colors", char_index, color)
 
-    def do_offset_char(self, char_index: int, end_value: Vector3, duration: float):
+    def twn_offset_char(self, char_index: int, end_value: Vector3, duration: float):
         return self._char_tween(char_index, "offsets", lambda read, write: _VectorTweener(read, write, _vector(end_value), duration))
 
-    def do_rotate_char(self, char_index: int, end_value: Vector3, duration: float, mode: RotateMode=RotateMode.FAST):
+    def twn_rotate_char(self, char_index: int, end_value: Vector3, duration: float, mode: RotateMode=RotateMode.FAST):
         return self._char_tween(char_index, "rotations", lambda read, write: EulerTweener(
             lambda: quatf.euler(*read()), lambda value: write(value.euler_angles), _vector(end_value), duration, mode))
 
     @overload
-    def do_scale_char(self, char_index: int, end_value: float, duration: float): ...
+    def twn_scale_char(self, char_index: int, end_value: float, duration: float): ...
     @overload
-    def do_scale_char(self, char_index: int, end_value: Vector3, duration: float): ...
-    def do_scale_char(self, char_index, end_value, duration):
+    def twn_scale_char(self, char_index: int, end_value: Vector3, duration: float): ...
+    def twn_scale_char(self, char_index, end_value, duration):
         return self._char_tween(char_index, "scales", lambda read, write: _VectorTweener(read, write, _vector(end_value, True), duration))
 
-    def do_color_char(self, char_index: int, end_value: list[float], duration: float):
+    def twn_color_char(self, char_index: int, end_value: list[float], duration: float):
         return self._char_tween(char_index, "colors", lambda read, write: _ColorTweener(read, write, end_value, duration))
 
-    def do_fade_char(self, char_index: int, end_value: float, duration: float):
+    def twn_fade_char(self, char_index: int, end_value: float, duration: float):
         return self._char_tween(char_index, "colors", lambda read, write:
                                 _ColorTweener(read, write, [0, 0, 0, end_value], duration).set_options(True), 2)
 
@@ -364,17 +370,17 @@ class TextTweenAnimator:
         return self._char_tween(char_index, channel, lambda read, write:
                                 _punch_tween(read, write, _vector(punch, scalar), duration, vibrato, elasticity))
 
-    def do_punch_char_offset(self, char_index: int, punch: Vector3, duration: float, vibrato: int=10, elasticity: float=1):
+    def twn_punch_char_offset(self, char_index: int, punch: Vector3, duration: float, vibrato: int=10, elasticity: float=1):
         return self._punch(char_index, "offsets", punch, duration, vibrato, elasticity)
 
-    def do_punch_char_rotation(self, char_index: int, punch: Vector3, duration: float, vibrato: int=10, elasticity: float=1):
+    def twn_punch_char_rotation(self, char_index: int, punch: Vector3, duration: float, vibrato: int=10, elasticity: float=1):
         return self._punch(char_index, "rotations", punch, duration, vibrato, elasticity)
 
     @overload
-    def do_punch_char_scale(self, char_index: int, punch: float, duration: float, vibrato: int=10, elasticity: float=1): ...
+    def twn_punch_char_scale(self, char_index: int, punch: float, duration: float, vibrato: int=10, elasticity: float=1): ...
     @overload
-    def do_punch_char_scale(self, char_index: int, punch: Vector3, duration: float, vibrato: int=10, elasticity: float=1): ...
-    def do_punch_char_scale(self, char_index, punch, duration, vibrato=10, elasticity=1):
+    def twn_punch_char_scale(self, char_index: int, punch: Vector3, duration: float, vibrato: int=10, elasticity: float=1): ...
+    def twn_punch_char_scale(self, char_index, punch, duration, vibrato=10, elasticity=1):
         return self._punch(char_index, "scales", punch, duration, vibrato, elasticity, True)
 
     def _shake(self, char_index, channel, duration, strength, vibrato, randomness, fade_out, scalar):
@@ -384,20 +390,20 @@ class TextTweenAnimator:
                                 _shake_tween(read, write, duration, _vector(strength, scalar), vibrato, randomness, fade_out))
 
     @overload
-    def do_shake_char_offset(self, char_index: int, duration: float, strength: float, vibrato: int=10, randomness: float=90, fade_out: bool=True): ...
+    def twn_shake_char_offset(self, char_index: int, duration: float, strength: float, vibrato: int=10, randomness: float=90, fade_out: bool=True): ...
     @overload
-    def do_shake_char_offset(self, char_index: int, duration: float, strength: Vector3, vibrato: int=10, randomness: float=90, fade_out: bool=True): ...
-    def do_shake_char_offset(self, char_index, duration, strength, vibrato=10, randomness=90, fade_out=True):
+    def twn_shake_char_offset(self, char_index: int, duration: float, strength: Vector3, vibrato: int=10, randomness: float=90, fade_out: bool=True): ...
+    def twn_shake_char_offset(self, char_index, duration, strength, vibrato=10, randomness=90, fade_out=True):
         return self._shake(char_index, "offsets", duration, strength, vibrato, randomness, fade_out, True)
 
-    def do_shake_char_rotation(self, char_index: int, duration: float, strength: Vector3, vibrato: int=10, randomness: float=90, fade_out: bool=True):
+    def twn_shake_char_rotation(self, char_index: int, duration: float, strength: Vector3, vibrato: int=10, randomness: float=90, fade_out: bool=True):
         return self._shake(char_index, "rotations", duration, strength, vibrato, randomness, fade_out, False)
 
     @overload
-    def do_shake_char_scale(self, char_index: int, duration: float, strength: float, vibrato: int=10, randomness: float=90, fade_out: bool=True): ...
+    def twn_shake_char_scale(self, char_index: int, duration: float, strength: float, vibrato: int=10, randomness: float=90, fade_out: bool=True): ...
     @overload
-    def do_shake_char_scale(self, char_index: int, duration: float, strength: Vector3, vibrato: int=10, randomness: float=90, fade_out: bool=True): ...
-    def do_shake_char_scale(self, char_index, duration, strength, vibrato=10, randomness=90, fade_out=True):
+    def twn_shake_char_scale(self, char_index: int, duration: float, strength: Vector3, vibrato: int=10, randomness: float=90, fade_out: bool=True): ...
+    def twn_shake_char_scale(self, char_index, duration, strength, vibrato=10, randomness=90, fade_out=True):
         return self._shake(char_index, "scales", duration, strength, vibrato, randomness, fade_out, True)
 
     def shift_char_vertices(self, char_index: int, top_left_shift: Vector3, top_right_shift: Vector3,

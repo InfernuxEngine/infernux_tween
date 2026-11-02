@@ -1,3 +1,2 @@
-infernux @ https://files.pythonhosted.org/packages/cc/50/7bdf8fc4b605adec57d33dbb0d3447c21dc74b92130ff40bd2d62f78cfdc/infernux-0.4.3-5-cp313-cp313-win_amd64.whl ; sys_platform == "win32"
-infernux @ https://files.pythonhosted.org/packages/03/a5/2df78877a76f9c4ded8ac2413c5bd55c6368109380a17becb077ea0a57f9/infernux-0.4.3-5-cp313-cp313-manylinux_2_35_x86_64.whl ; sys_platform == "linux"
+infernux>=0.4.8
 pytest>=8,<9

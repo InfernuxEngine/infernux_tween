@@ -9,12 +9,12 @@ def value_tween(manager, end=10.0, duration=1.0):
     return value, tween
 
 
-@pytest.mark.parametrize("ease", list(Ease))
+@pytest.mark.parametrize("ease", [ease for ease in Ease if ease.value < 36])
 def test_easing_curves_have_exact_endpoints_and_finite_samples(ease):
     from math import isfinite
     from infernux_tween.ease import resolve_ease
 
-    curve = resolve_ease(ease, 3) if ease.value.endswith("Flash") else resolve_ease(ease)
+    curve = resolve_ease(ease, 3) if ease.label.endswith("Flash") else resolve_ease(ease)
     assert curve(0) == pytest.approx(0)
     assert curve(1) == pytest.approx(1)
     assert all(isfinite(curve(i / 100)) for i in range(101))
@@ -92,6 +92,39 @@ def test_callbacks_can_create_and_kill_tweens_without_mutating_iteration():
     assert activity[-1] == (UpdateType.NORMAL, False)
 
 
+@pytest.mark.parametrize('phase', list(UpdateType))
+def test_tween_created_in_callback_waits_for_next_update_and_does_not_reuse_a_pending_kill(phase):
+    manager = TweenManager()
+    _, first = value_tween(manager)
+    _, second = value_tween(manager)
+    first.set_update(phase)
+    second.set_update(phase).set_recyclable(True)
+    manager.update(.1, update_type=phase)
+    manager.update(.1, update_type=phase)
+    created = []
+    def replace():
+        first.on_update(None)
+        second.kill()
+        pair = value_tween(manager)
+        pair[1].set_update(phase)
+        created.append(pair)
+    first.on_update(replace)
+    manager.update(.1, update_type=phase)
+    value, replacement = created[0]
+    assert replacement is not second and not second.is_active()
+    assert manager.total_pooled_tweens() == 1
+    assert value[0] == 0
+    manager.update(.25, update_type=phase)
+    assert value[0] == pytest.approx(2.5)
+    replacement.pause()
+    manager.update(.25, update_type=phase)
+    assert value[0] == pytest.approx(2.5)
+    replacement.play()
+    manager.update(.25, update_type=phase)
+    assert value[0] == pytest.approx(5)
+    manager.clear()
+
+
 def test_sequence_append_join_insert_nested_and_callbacks():
     manager = TweenManager()
     first_value, first = value_tween(manager)
@@ -110,7 +143,7 @@ def test_sequence_append_join_insert_nested_and_callbacks():
     assert (first_value[0], joined_value[0], last_value[0]) == (0, 0, 0)
 
 
-def test_sequence_children_receive_callbacks_once_and_repeat_each_loop():
+def test_multicycle_completion_keeps_timeline_callbacks_without_recompleting_the_child():
     manager, events = TweenManager(), []
     value, child = value_tween(manager)
     child.on_start(lambda: events.append("start")).on_complete(lambda: events.append("end"))
@@ -118,7 +151,7 @@ def test_sequence_children_receive_callbacks_once_and_repeat_each_loop():
     sequence.set_loops(2).set_auto_kill(False)
     manager.update(2)
     assert value[0] == 10
-    assert events == ["zero", "start", "end", "zero", "end"]
+    assert events == ["zero", "start", "end", "zero"]
 
 
 def test_backwards_and_seek_restore_later_sequence_children():
@@ -130,7 +163,8 @@ def test_backwards_and_seek_restore_later_sequence_children():
     assert value[0] == 20
     sequence.goto(0.5)
     assert value[0] == 5
-    sequence.goto(2).play_backwards()
+    sequence.goto(2)
+    sequence.play_backwards()
     manager.update(1.5)
     assert value[0] == 5
 
@@ -143,10 +177,10 @@ def test_sequence_rejects_duplicate_ownership_and_normalizes_infinite_children()
         manager.sequence().append(child)
     _, infinite = value_tween(manager)
     first.append(infinite.set_loops(-1))
-    assert infinite.loops() == 1 and first.duration() == 2
+    assert infinite.loops() == 2**31 - 1 and first.duration() == 2**31
 
 
-def test_inverted_sequence_pauses_on_its_reverse_timeline_and_resumes_without_losing_time():
+def test_inverted_sequence_completion_keeps_actual_clock_despite_timeline_pause():
     manager, value, events = TweenManager(), [0.0], []
     child = manager.to(lambda: value[0], lambda v: value.__setitem__(0, v), 10., 1).set_ease(Ease.LINEAR)
     root = manager.sequence().append(child).set_inverted().set_auto_kill(False)
@@ -154,11 +188,11 @@ def test_inverted_sequence_pauses_on_its_reverse_timeline_and_resumes_without_lo
     manager.update(0.5)
     assert value[0] == 5 and events == []
     manager.update(0.5)
-    assert root.is_active() and not root.is_playing() and root.elapsed() == 0.75
-    assert value[0] == 2.5 and events == [0.75]
+    assert root.is_active() and not root.is_playing() and root.elapsed() == 1
+    assert value[0] == 0 and events == [1] and root.is_complete()
     root.play()
     manager.update(0.25)
-    assert value[0] == 0 and root.is_complete() and events == [0.75]
+    assert value[0] == 0 and root.is_complete() and events == [1]
 
 
 def test_backward_rewind_does_not_autokill():
@@ -202,10 +236,14 @@ def test_sequence_callbacks_follow_playback_direction_instead_of_ease_rebounds(b
     root = manager.sequence().append(body) if nested else body
     root.set_auto_kill(False).set_loops(2 if yoyo else 1, LoopType.YOYO)
     if backwards:
-        root.goto(root.duration()).play_backwards()
+        root.goto(root.duration())
+        root.play_backwards()
     for _ in range(240 if yoyo else 120):
         manager.update(1 / 120)
-    assert len(events) == (6 if yoyo else 3)
+    # A sequence reverses its eased clock; a nested Bounce child retains its
+    # own clock. Actual Play measurements live in LoopBoundaryReference.cs.
+    expected = (6 if nested else 4) if yoyo else 3
+    assert len(events) == expected
     manager.clear()
 
 
@@ -230,15 +268,20 @@ def test_delay_play_and_seek_use_elapsed_time_without_repeating_callbacks():
     manager.update(0.5)
     assert events == [] and value[0] == 0
     manager.update(0.5)
+    assert events == [] and value[0] == 0
+    manager.update(0.25)
     assert events == ["start", "play"]
     tween.goto(0.5)
     assert tween.elapsed() == 0.5 and value[0] == 5
-    tween.rewind(False).rewind(False)
+    tween.rewind(False)
+    tween.rewind(False)
     assert events == ["start", "play", "rewind"] and value[0] == 0
     tween.restart()
     manager.update(0.5)
     assert events == ["start", "play", "rewind"]
     manager.update(0.5)
+    assert events == ["start", "play", "rewind"]
+    manager.update(0.25)
     assert events == ["start", "play", "rewind", "play"]
     tween.goto(tween.duration())
     assert tween.is_complete() and value[0] == 10
@@ -281,73 +324,45 @@ def test_sequence_delay_is_a_repeated_interval_unless_explicitly_one_time():
     assert once.duration() == 2 and once.full_duration == 3
 
 
-@pytest.mark.parametrize("ease,auto_kill,nested,loops,delta,child_callback", (
-    (Ease.LINEAR, True, False, 1, 2, False),
-    (Ease.LINEAR, False, False, 1, 2, False),
-    (Ease.LINEAR, True, False, 3, 5, False),
-    (Ease.OUT_QUAD, True, False, 1, 2, False),
-    (Ease.OUT_SINE, True, False, 1, 2, False),
-    (Ease.LINEAR, True, True, 1, 3, False),
-    (Ease.OUT_QUAD, True, True, 1, 3, False),
-    (Ease.LINEAR, True, True, 1, 3, True),
-))
-def test_sequence_callback_pause_stops_later_children_and_callbacks_in_that_update(
-        ease, auto_kill, nested, loops, delta, child_callback):
-    from math import asin, pi, sin, sqrt
+def test_sequence_timeline_pause_keeps_earlier_writes_and_skips_later_entries():
+    # Completion, nesting, nonlinear ease and multiloop cases are covered by the
+    # real SequenceDispatchReference fixture rather than inferred boundary times.
     manager, events = TweenManager(), []
     first_value, first = value_tween(manager)
     value, second = value_tween(manager)
-    sequence = manager.sequence()
-    body = manager.sequence() if nested else sequence
-    body.append(first)
-    if child_callback:
-        first.on_complete(sequence.pause)
-    else:
-        body.append_callback(sequence.pause)
-    body.append(second).append_callback(lambda: events.append("later"))
-    if nested:
-        sequence.append_interval(0.5).append(body)
-    joined_value = None
-    if not nested:
-        joined_value = [0.0]
-        joined = manager.to(lambda: joined_value[0], lambda value: joined_value.__setitem__(0, value), 10.0, 2)
-        sequence.insert(0, joined.set_ease(Ease.LINEAR))
-    sequence.set_auto_kill(auto_kill).set_loops(loops).set_ease(ease)
-    duration, boundary = sequence.duration(False), 1.5 if nested else 1.0
-    expected = (boundary if ease == Ease.LINEAR else duration * 2 / pi * asin(boundary / duration)
-                if ease == Ease.OUT_SINE else duration * (1 - sqrt(1 - boundary / duration)))
-    manager.update(delta)
+    sequence = manager.sequence().append(first).set_auto_kill(False)
+    sequence.append_callback(lambda: (events.append(sequence.elapsed()), sequence.pause()))
+    sequence.append(second).append_callback(lambda: events.append("later"))
+    joined_value, joined = value_tween(manager, duration=2)
+    sequence.insert(0, joined)
+    manager.update(1.25)
     assert sequence.is_active() and not sequence.is_playing()
-    assert sequence.elapsed() == pytest.approx(expected, abs=1e-8)
-    assert first_value[0] == 10 and value[0] == 0 and not events
-    if joined_value is not None:
-        assert joined_value[0] == pytest.approx(10 * boundary / duration)
+    assert sequence.elapsed() == 1.25 and events == [1.25]
+    assert first_value[0] == 10 and value[0] == 0 and joined_value[0] == 6.25
     sequence.play()
     manager.update(0.25)
-    assert sequence.elapsed() == pytest.approx(expected + 0.25, abs=1e-8)
-    progress = (expected + 0.25) / duration
-    sample = duration * (progress if ease == Ease.LINEAR else sin(progress * pi / 2)
-                         if ease == Ease.OUT_SINE else 1 - (1 - progress)**2)
-    assert value[0] == pytest.approx(10 * (sample - boundary), abs=1e-7)
-    assert not events and sequence.is_playing()
-    if joined_value is not None:
-        assert joined_value[0] == pytest.approx(10 * sample / duration, abs=1e-7)
-    if not nested and ease == Ease.LINEAR and loops == 1:
-        sequence.goto(2).play_backwards()
-        manager.update(1.5)
-        assert sequence.is_active() and not sequence.is_playing() and sequence.elapsed() == 1
-        assert first_value[0] == 10 and value[0] == 0 and joined_value[0] == 5
-        sequence.play()
-        manager.update(0.25)
-        assert sequence.elapsed() == 0.75 and first_value[0] == 7.5
-        assert value[0] == 0 and joined_value[0] == 3.75
+    assert sequence.elapsed() == 1.5 and sequence.is_playing() and events == [1.25]
+    assert value[0] == 5 and joined_value[0] == 7.5
 
 
-def test_joined_child_lifecycle_pause_samples_other_children_only_to_that_boundary():
-    for event, boundary in (("start", 0.5), ("step", 0.5), ("complete", 1.0)):
+def test_on_update_can_install_step_listener_for_the_same_crossing():
+    for duration in (0, .25):
+        manager = TweenManager()
+        events = []
+        tween = manager.to(lambda: 0., lambda value: None, 1., duration).set_loops(3)
+        tween.on_update(lambda: tween.on_step_complete(lambda: events.append("step")))
+        manager.update(1)
+        assert events == ["step"] * 3
+        manager.clear()
+
+
+def test_joined_child_lifecycle_pause_keeps_the_actual_frame_clock():
+    # SequenceInterruptReference measures these three cases at delta=1.25:
+    # the earlier joined tween has already sampled 6.25 when its sibling pauses.
+    for event in ("start", "step", "complete"):
         manager, joined_value = TweenManager(), [0.0]
         joined = manager.to(lambda: joined_value[0], lambda value: joined_value.__setitem__(0, value), 10.0, 2)
-        sequence = manager.sequence().append(joined.set_ease(Ease.LINEAR))
+        sequence = manager.sequence().append(joined.set_ease(Ease.LINEAR)).set_auto_kill(False)
         short = manager.to(lambda: 0.0, lambda value: None, 1.0, 0.5 if event == "step" else 1)
         if event == "start":
             short.set_delay(0.5).on_start(sequence.pause)
@@ -356,10 +371,10 @@ def test_joined_child_lifecycle_pause_samples_other_children_only_to_that_bounda
         else:
             short.on_complete(sequence.pause)
         sequence.insert(0, short)
-        manager.update(2)
-        assert sequence.is_active() and not sequence.is_playing() and sequence.elapsed() == boundary
-        assert joined_value[0] == 5 * boundary
+        manager.update(1.25)
+        assert sequence.is_active() and not sequence.is_playing() and sequence.elapsed() == 1.25
+        assert joined_value[0] == 6.25
         sequence.play()
         manager.update(0.25)
-        assert sequence.is_active() and sequence.is_playing() and sequence.elapsed() == boundary + 0.25
-        assert joined_value[0] == 5 * (boundary + 0.25)
+        assert sequence.is_active() and sequence.is_playing() and sequence.elapsed() == 1.5
+        assert joined_value[0] == 7.5

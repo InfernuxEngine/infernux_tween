@@ -5,17 +5,17 @@ from infernux.components import InxComponent, disallow_multiple
 
 
 class LinkBehaviour(Enum):
-    KILL_ON_DESTROY = "KillOnDestroy"
-    KILL_ON_DISABLE = "KillOnDisable"
-    PAUSE_ON_DISABLE = "PauseOnDisable"
-    PAUSE_ON_DISABLE_PLAY_ON_ENABLE = "PauseOnDisablePlayOnEnable"
-    PAUSE_ON_DISABLE_RESTART_ON_ENABLE = "PauseOnDisableRestartOnEnable"
-    PLAY_ON_ENABLE = "PlayOnEnable"
-    RESTART_ON_ENABLE = "RestartOnEnable"
-    COMPLETE_ON_DISABLE = "CompleteOnDisable"
-    COMPLETE_AND_KILL_ON_DISABLE = "CompleteAndKillOnDisable"
-    REWIND_ON_DISABLE = "RewindOnDisable"
-    REWIND_AND_KILL_ON_DISABLE = "RewindAndKillOnDisable"
+    KILL_ON_DESTROY = 6
+    KILL_ON_DISABLE = 5
+    PAUSE_ON_DISABLE = 0
+    PAUSE_ON_DISABLE_PLAY_ON_ENABLE = 1
+    PAUSE_ON_DISABLE_RESTART_ON_ENABLE = 2
+    PLAY_ON_ENABLE = 3
+    RESTART_ON_ENABLE = 4
+    COMPLETE_ON_DISABLE = 7
+    COMPLETE_AND_KILL_ON_DISABLE = 8
+    REWIND_ON_DISABLE = 9
+    REWIND_AND_KILL_ON_DISABLE = 10
 
 
 @disallow_multiple

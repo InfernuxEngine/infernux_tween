@@ -1,101 +1,151 @@
 """Seekable procedural motion and additive displacement."""
-from math import cos, pi, sin
+from math import cos, isfinite, pi, sin
 from enum import Enum
 from functools import singledispatch
-import random
 from typing import overload
 
 from infernux.components.builtin import Camera, Rigidbody
-from infernux.lib import Transform, Vector3, quatf
+from infernux.debug import Debug
+from infernux.lib import Random, Transform, Vector2, Vector3, quatf
+from infernux.lib._Infernux import _tween_impulse_durations
 
-from .core import _default_manager, Tweener, UpdateType
+from .core import _default_manager, _ArrayTweener, _VectorTweener, _f32, AxisConstraint, LoopType
 from .ease import Ease
-from .rotation import RotateMode
-
-
-class SpiralMode(Enum):
-    EXPAND = "Expand"
-    EXPAND_THEN_CONTRACT = "ExpandThenContract"
+from .rotation import RotateMode, _rotate_offset
+from .spiral import SpiralMode, SpiralPlugin
 
 
 class ShakeRandomnessMode(Enum):
-    FULL = "Full"
-    HARMONIC = "Harmonic"
+    FULL = 0
+    HARMONIC = 1
 
 
 def _vector(value):
     return Vector3(value, value, value) if isinstance(value, (int, float)) else Vector3(*value)
 
 
-class MotionTween(Tweener):
-    def __init__(self, getter, setter, duration, sample, snapping=False):
-        super().__init__(getter, setter, Vector3(0, 0, 0), duration)
-        self._sample, self._snapping = sample, snapping
-        self._no_from = True
-        self.set_ease(Ease.LINEAR)
+class _JumpVerticalTween(_VectorTweener):
+    """Keep the reference's float loop clock and the observable Y offset clock."""
 
-    def _apply(self, progress, cycle, previous, callbacks):
-        self.force_init()
-        value = self._sample(self._start, self._ease(progress), self._relative)
-        increment = self._incremental_cycles(cycle)
-        if increment:
-            value += (self._sample(self._start, 1.0, self._relative)-self._start)*increment
-        if self._snapping:
-            value = Vector3(*(round(item) for item in value))
-        self._setter(value)
+    @property
+    def full_duration(self):
+        return _f32(super().full_duration)
 
+    def _clock(self, position):
+        elapsed = _f32(max(0.0, position - self._delay))
+        if self._duration == 0 or elapsed >= self.full_duration:
+            return self._loops - 1, self._duration
+        cycle = int(_f32(elapsed / self._duration))
+        remainder = _f32(elapsed % self._duration)
+        if elapsed > 0 and remainder == 0:
+            return cycle - 1, self._duration
+        return cycle, remainder
 
-class _ImpulseTween(MotionTween):
-    def _initialize(self):
-        self._relative = self._speed_based = False
-        super()._initialize()
+    @property
+    def position(self) -> float:
+        return self._clock(self._position)[1]
 
+    def _progress_at(self, position):
+        if self._duration == 0:
+            return self._loops - 1, 1.0
+        cycle, remainder = self._clock(position)
+        progress = _f32(remainder / self._duration)
+        return cycle, 1 - progress if self.loop_type == LoopType.YOYO and cycle % 2 else progress
 
-def _target_motion(target, name, duration, sample, snapping=False, tween_type=MotionTween):
-    if isinstance(target, Rigidbody):
-        if name != "position":
-            raise TypeError("Rigidbody procedural motion uses world position")
-        setter = target.move_position
-    else:
-        setter = lambda value: setattr(target, name, value)
-    tween = tween_type(lambda: getattr(target, name), setter, duration, sample, snapping).set_target(target)
-    if isinstance(target, Rigidbody):
-        tween.set_update(UpdateType.FIXED)
-    return tween
+    def elapsed(self, include_loops=True):
+        if not self._active:
+            return 0.0
+        cycle, remainder = self._clock(self._position)
+        return _f32(_f32(cycle * self._duration) + remainder) if include_loops else remainder
 
 
 def _jump(target, name, end_value, jump_power, num_jumps, duration, snapping):
-    if int(num_jumps) != num_jumps or num_jumps < 1:
-        raise ValueError("Jump count must be a positive integer")
-    end = _vector(end_value)
-    def sample(start, progress, relative):
-        phase = (progress*num_jumps) % 1
-        return start+(end if relative else end-start)*progress+Vector3(0, 4*jump_power*phase*(1-phase), 0)
-    return _default_manager.sequence().append(_target_motion(target, name, duration, sample, snapping)).set_target(target)
+    if type(num_jumps) is not int:
+        raise TypeError("num_jumps must be an integer")
+    num_jumps = max(1, num_jumps)
+    planar = isinstance(end_value, Vector2)
+    end = Vector2(*end_value) if planar else _vector(end_value)
+    read = lambda: getattr(target, name)
+    write = target.move_position if isinstance(target, Rigidbody) else lambda value: setattr(target, name, value)
+    # Physics and anchored jumps capture height on Start; seeking does not
+    # invoke Start. The ordinary Transform shortcut captures height eagerly.
+    start_y, offset_y = (0.0 if planar or isinstance(target, Rigidbody) else read().y), None
+    sequence = _default_manager.sequence().set_target(target).set_ease(_default_manager.default_ease_type)
+
+    def capture_start():
+        nonlocal start_y
+        start_y = read().y
+
+    vertical = (_default_manager.add(_default_manager._new(
+                    _JumpVerticalTween, read, write, Vector2(0, jump_power) if planar else Vector3(0, jump_power, 0), _f32(duration / (num_jumps * 2))))
+                .set_options(AxisConstraint.Y, snapping).set_ease(Ease.OUT_QUAD).set_relative()
+                .set_loops(num_jumps * 2, LoopType.YOYO).on_start(capture_start))
+    horizontal = (_default_manager.to(read, write, Vector2(end.x, 0) if planar else Vector3(end.x, 0, 0), duration)
+                  .set_options(AxisConstraint.X, snapping).set_ease(Ease.LINEAR))
+    sequence.append(horizontal)
+    if not planar:
+        depth = (_default_manager.to(read, write, Vector3(0, 0, end.z), duration)
+                 .set_options(AxisConstraint.Z, snapping).set_ease(Ease.LINEAR))
+        sequence.join(depth)
+    sequence.join(vertical)
+
+    def apply_height_offset():
+        nonlocal offset_y
+        if offset_y is None:
+            offset_y = end.y if sequence._relative else end.y - start_y
+        progress = sequence.elapsed_percentage() if planar else vertical.elapsed_percentage()
+        position = read()
+        position.y += offset_y * progress * (2 - progress)
+        write(position)
+
+    vertical.on_update(apply_height_offset)
+    return sequence
 
 
-def do_jump(target, end_value, jump_power, num_jumps, duration, snapping=False):
-    sequence = _jump(target, "position", end_value, jump_power, num_jumps, duration, snapping)
-    return sequence.set_update(UpdateType.FIXED) if isinstance(target, Rigidbody) else sequence
+def twn_jump(target, end_value, jump_power, num_jumps, duration, snapping=False):
+    return _jump(target, "position", end_value, jump_power, num_jumps, duration, snapping)
 
 
-def do_local_jump(target, end_value, jump_power, num_jumps, duration, snapping=False):
+def twn_local_jump(target, end_value, jump_power, num_jumps, duration, snapping=False):
     return _jump(target, "local_position", end_value, jump_power, num_jumps, duration, snapping)
 
 
-def _punch_tween(getter, setter, direction, duration, vibrato=10, elasticity=1.0):
-    if duration <= 0:
-        return None
-    if vibrato < 1 or not 0 <= elasticity <= 1:
-        raise ValueError("Punch needs positive vibrato and elasticity in [0, 1]")
-    strength = _vector(direction)
-    def sample(start, progress, relative):
-        wave = sin(progress*pi*2*vibrato)*(1-progress)**2
-        return start+strength*(wave if wave >= 0 else wave*elasticity)
-    return _ImpulseTween(getter, setter, duration, sample)
+def _impulse_durations(duration, vibrato, fade_out):
+    if type(vibrato) is not int:
+        raise TypeError("vibrato must be an integer")
+    return _tween_impulse_durations(duration, vibrato, fade_out)
+
+
+def _impulse_tween(getter, setter, offsets, durations, mode, manager=None):
+    owner = _default_manager if manager is None else manager
+    tween = owner._new(_ArrayTweener, getter, setter, offsets, durations)
+    tween._duration = _f32(tween._duration)
+    tween._refresh_full_duration()
+    tween._startup_mode, tween._startup_offsets = mode, tuple(offsets)
+    return tween
+
+
+def _punch_tween(getter, setter, direction, duration, vibrato=10, elasticity=1.0, *, manager=None):
+    duration = _f32(duration)
+    durations = _impulse_durations(duration, vibrato, True)
+    direction = _vector(direction)
+    count = len(durations)
+    elasticity = min(1.0, max(0.0, elasticity))
+    strength = direction.magnitude
+    decay = _f32(strength / count)
+    normalized = direction.normalized
+    offsets = []
+    for index in range(count - 1):
+        amplitude = _f32(-strength * elasticity) if index % 2 else strength
+        offsets.append(direction if index == 0 else normalized * amplitude)
+        strength = _f32(strength - decay)
+    offsets.append(Vector3(0, 0, 0))
+    return _impulse_tween(getter, setter, offsets, durations, "punch", manager)
 
 
 def _punch(target, name, punch, duration, vibrato=10, elasticity=1.0, snapping=False):
+    if duration <= 0:
+        return None
     tween = _punch_tween(lambda: getattr(target, name), lambda value: setattr(target, name, value),
                          punch, duration, vibrato, elasticity)
     if tween is None:
@@ -105,40 +155,64 @@ def _punch(target, name, punch, duration, vibrato=10, elasticity=1.0, snapping=F
     return _default_manager.add(tween)
 
 
-def do_punch_position(target, punch, duration, vibrato=10, elasticity=1.0, snapping=False):
+def twn_punch_position(target, punch, duration, vibrato=10, elasticity=1.0, snapping=False):
     return _punch(target, "local_position", punch, duration, vibrato, elasticity, snapping)
 
 
-def do_punch_rotation(target, punch, duration, vibrato=10, elasticity=1.0):
+def twn_punch_rotation(target, punch, duration, vibrato=10, elasticity=1.0):
     return _punch(target, "local_euler_angles", punch, duration, vibrato, elasticity)
 
 
-def do_punch_scale(target, punch, duration, vibrato=10, elasticity=1.0):
+def twn_punch_scale(target, punch, duration, vibrato=10, elasticity=1.0):
     return _punch(target, "local_scale", punch, duration, vibrato, elasticity)
 
 
-def _shake_sample(strength, vibrato, randomness, fade_out, randomness_mode):
-    if int(vibrato) != vibrato or vibrato < 1 or not 0 <= randomness <= 180:
-        raise ValueError("Shake needs integer vibrato > 0 and randomness in [0, 180]")
+def _clamp_magnitude(value, limit):
+    magnitude = value.magnitude
+    return value / magnitude * limit if value.sqr_magnitude > _f32(limit * limit) else value
+
+
+def _shake_offsets(duration, strength, vibrato, randomness, fade_out, randomness_mode, ignore_z_axis=False):
     if not isinstance(randomness_mode, ShakeRandomnessMode):
         raise TypeError("randomness_mode must be ShakeRandomnessMode")
-    rng, strength = random.Random(0), _vector(strength)
-    points = [Vector3(0, 0, 0)]
-    angle = 0.0
-    for index in range(vibrato):
-        angle += pi+rng.uniform(-randomness, randomness)*pi/180
-        tilt = (rng.uniform(-randomness, randomness) if randomness_mode == ShakeRandomnessMode.FULL
-                else randomness*sin(index*pi/2))*pi/180
-        fade = 1-index/vibrato if fade_out else 1
-        points.append(Vector3(cos(angle)*cos(tilt)*strength.x,
-                              sin(angle)*cos(tilt)*strength.y, sin(tilt)*strength.z)*fade)
-    points.append(Vector3(0, 0, 0))
-    def sample(start, progress, relative):
-        position = min(1, max(0, progress))*(len(points)-1)
-        index = min(len(points)-2, int(position))
-        blend = (1-cos((position-index)*pi))/2
-        return start+points[index]+(points[index+1]-points[index])*blend
-    return sample
+    vector = isinstance(strength, Vector3)
+    if not vector and type(strength) not in (int, float):
+        raise TypeError("strength must be float or Vector3")
+    duration, randomness = _f32(duration), _f32(randomness)
+    durations = _impulse_durations(duration, vibrato, fade_out)
+    count = len(durations)
+    spatial = vector or not ignore_z_axis
+    lower = -randomness if randomness_mode == ShakeRandomnessMode.FULL else 0.0
+    bounds = [(0.0, 360.0)]
+    for index in range(count - 1):
+        if index:
+            bounds.append((lower, randomness))
+        if spatial:
+            bounds.append((lower, randomness))
+    draws = iter(Random.range_many(bounds))
+    angle = next(draws)
+    magnitude = strength.magnitude if vector else _f32(strength)
+    decay = _f32(magnitude / count)
+    offsets = []
+    for index in range(count - 1):
+        if index:
+            angle = _f32(_f32(angle - 180) + next(draws))
+        radians = _f32(angle * _f32(pi / 180))
+        point = Vector3(_f32(cos(radians)) * magnitude, _f32(sin(radians)) * magnitude, 0)
+        if spatial:
+            point = _rotate_offset(quatf.angle_axis(next(draws), Vector3(0, 1, 0)), point)
+        if vector:
+            # Each component clamp observes the previously changed components.
+            for axis, limit in enumerate(strength):
+                setattr(point, "xyz"[axis], _clamp_magnitude(point, limit)[axis])
+            point = point / point.magnitude * magnitude if point.magnitude > 1e-5 else Vector3(0, 0, 0)
+        offsets.append(point)
+        if fade_out:
+            magnitude = _f32(magnitude - decay)
+        if vector:
+            strength = _clamp_magnitude(strength, magnitude)
+    offsets.append(Vector3(0, 0, 0))
+    return offsets, durations
 
 
 @overload
@@ -149,9 +223,7 @@ def _shake_tween(getter, setter, duration: float, strength: float=3, vibrato: in
 def _shake_tween(getter, setter, duration: float, strength: Vector3, vibrato: int=10,
                  randomness: float=90, fade_out: bool=True,
                  randomness_mode: ShakeRandomnessMode=ShakeRandomnessMode.FULL): ...
-def _shake_tween(getter, setter, duration, *args, **kwargs):
-    if duration <= 0:
-        return None
+def _shake_tween(getter, setter, duration, *args, manager=None, **kwargs):
     strength = args[0] if args else kwargs.get("strength", 3.0)
     vector = isinstance(strength, Vector3)
     names = ["strength", "vibrato", "randomness", *([] if vector else ["ignore_z_axis"]), "fade_out", "randomness_mode"]
@@ -164,71 +236,55 @@ def _shake_tween(getter, setter, duration, *args, **kwargs):
     strength = values.get("strength", 3.0)
     if not vector and (type(strength) not in (int, float)):
         raise TypeError("strength must be float or Vector3")
-    strength = _vector(strength)
-    if not vector and values.get("ignore_z_axis", True):
-        strength.z = 0
-    sample = _shake_sample(strength, values.get("vibrato", 10), values.get("randomness", 90),
-                           values.get("fade_out", True), values.get("randomness_mode", ShakeRandomnessMode.FULL))
-    return _ImpulseTween(getter, setter, duration, sample)
+    offsets, durations = _shake_offsets(duration, strength, values.get("vibrato", 10), values.get("randomness", 90),
+                                         values.get("fade_out", True), values.get("randomness_mode", ShakeRandomnessMode.FULL),
+                                         values.get("ignore_z_axis", True))
+    return _impulse_tween(getter, setter, offsets, durations, "shake", manager)
 
 
 def _shake(target, name, duration, strength, vibrato, randomness, snapping, fade_out, randomness_mode):
     if duration <= 0:
         return None
-    sample = _shake_sample(strength, vibrato, randomness, fade_out, randomness_mode)
-    return _default_manager.add(_target_motion(target, name, duration, sample, snapping, _ImpulseTween))
+    offsets, durations = _shake_offsets(duration, strength, vibrato, randomness, fade_out, randomness_mode)
+    tween = _impulse_tween(lambda: getattr(target, name), lambda value: setattr(target, name, value), offsets, durations, "shake")
+    return _default_manager.add(tween).set_options(snapping).set_target(target)
 
 
 @overload
-def do_shake_position(target: Transform, duration: float, strength: float=1, vibrato: int=10,
+def twn_shake_position(target: Transform, duration: float, strength: float=1, vibrato: int=10,
                       randomness: float=90, snapping: bool=False, fade_out: bool=True,
                       randomness_mode: ShakeRandomnessMode=ShakeRandomnessMode.FULL): ...
 @overload
-def do_shake_position(target: Transform, duration: float, strength: Vector3, vibrato: int=10,
+def twn_shake_position(target: Transform, duration: float, strength: Vector3, vibrato: int=10,
                       randomness: float=90, snapping: bool=False, fade_out: bool=True,
                       randomness_mode: ShakeRandomnessMode=ShakeRandomnessMode.FULL): ...
 @overload
-def do_shake_position(target: Camera, duration: float, strength: float=3, vibrato: int=10,
+def twn_shake_position(target: Camera, duration: float, strength: float=3, vibrato: int=10,
                       randomness: float=90, fade_out: bool=True,
                       randomness_mode: ShakeRandomnessMode=ShakeRandomnessMode.FULL): ...
 @overload
-def do_shake_position(target: Camera, duration: float, strength: Vector3, vibrato: int=10,
+def twn_shake_position(target: Camera, duration: float, strength: Vector3, vibrato: int=10,
                       randomness: float=90, fade_out: bool=True,
                       randomness_mode: ShakeRandomnessMode=ShakeRandomnessMode.FULL): ...
 @singledispatch
-def do_shake_position(target, duration, strength=1.0, vibrato=10, randomness=90, snapping=False,
+def twn_shake_position(target, duration, strength=1.0, vibrato=10, randomness=90, snapping=False,
                       fade_out=True, randomness_mode=ShakeRandomnessMode.FULL):
     return _shake(target, "local_position", duration, strength, vibrato, randomness, snapping, fade_out, randomness_mode)
 
 
-@do_shake_position.register(Camera)
+@twn_shake_position.register(Camera)
 def _camera_shake_position(target, duration, strength=3.0, vibrato=10, randomness=90,
                            fade_out=True, randomness_mode=ShakeRandomnessMode.FULL):
     if duration <= 0:
         return None
-    if type(strength) in (int, float):
-        strength = Vector3(strength, strength, 0)
-    elif not isinstance(strength, Vector3):
-        raise TypeError("strength must be float or Vector3")
-    displacement = _shake_sample(strength, vibrato, randomness, fade_out, randomness_mode)
-    rotation = inverse = None
-
-    def read():
-        nonlocal rotation, inverse
-        rotation = target.transform.local_rotation
-        inverse = quatf.inverse(rotation)
-        return target.transform.local_position
-
-    def sample(start, progress, relative):
-        offset = displacement(Vector3(0, 0, 0), progress, relative)
-        rotated = rotation*quatf(*offset, 0)*inverse
-        return start+Vector3(rotated.x, rotated.y, rotated.z)
-
-    return _default_manager.add(_ImpulseTween(read, lambda value: setattr(target.transform, "local_position", value),
-                                              duration, sample)).set_target(target)
+    offsets, durations = _shake_offsets(duration, strength, vibrato, randomness, fade_out, randomness_mode, True)
+    tween = _impulse_tween(lambda: target.transform.local_position,
+                           lambda value: setattr(target.transform, "local_position", value), offsets, durations, "shake")
+    tween._startup_rotation_getter = lambda: target.transform.local_rotation
+    return _default_manager.add(tween).set_target(target)
 
 
-def do_shake_rotation(target, duration, strength=90.0, vibrato=10, randomness=90,
+def twn_shake_rotation(target, duration, strength=90.0, vibrato=10, randomness=90,
                       fade_out=True, randomness_mode=ShakeRandomnessMode.FULL):
     transform = target.transform if isinstance(target, Camera) else target
     tween = _shake(transform, "local_euler_angles", duration, strength, vibrato, randomness,
@@ -236,7 +292,7 @@ def do_shake_rotation(target, duration, strength=90.0, vibrato=10, randomness=90
     return None if tween is None else tween.set_target(target)
 
 
-def do_shake_scale(target, duration, strength=1.0, vibrato=10, randomness=90,
+def twn_shake_scale(target, duration, strength=1.0, vibrato=10, randomness=90,
                    fade_out=True, randomness_mode=ShakeRandomnessMode.FULL):
     return _shake(target, "local_scale", duration, strength, vibrato, randomness, False, fade_out, randomness_mode)
 
@@ -250,9 +306,9 @@ def _blendable(target, name, by_value, duration, snapping=False):
     return _default_manager.to(lambda: Vector3(0, 0, 0), write, _vector(by_value), duration).set_options(snapping).set_target(target)
 
 
-def do_blendable_move_by(target, by_value, duration, snapping=False): return _blendable(target, "position", by_value, duration, snapping)
-def do_blendable_local_move_by(target, by_value, duration, snapping=False): return _blendable(target, "local_position", by_value, duration, snapping)
-def do_blendable_scale_by(target, by_value, duration): return _blendable(target, "local_scale", by_value, duration)
+def twn_blendable_move_by(target, by_value, duration, snapping=False): return _blendable(target, "position", by_value, duration, snapping)
+def twn_blendable_local_move_by(target, by_value, duration, snapping=False): return _blendable(target, "local_position", by_value, duration, snapping)
+def twn_blendable_scale_by(target, by_value, duration): return _blendable(target, "local_scale", by_value, duration)
 
 
 def _blendable_rotation(target, name, by, duration, mode):
@@ -278,34 +334,46 @@ def _rotation_writer(target, name, mode):
     return write
 
 
-def do_blendable_rotate_by(target, by_value, duration, mode=RotateMode.FAST):
+def twn_blendable_rotate_by(target, by_value, duration, mode=RotateMode.FAST):
     return _blendable_rotation(target, "rotation", by_value, duration, mode)
 
 
-def do_blendable_local_rotate_by(target, by_value, duration, mode=RotateMode.FAST):
+def twn_blendable_local_rotate_by(target, by_value, duration, mode=RotateMode.FAST):
     return _blendable_rotation(target, "local_rotation", by_value, duration, mode)
 
 
-def do_blendable_punch_rotation(target, punch: Vector3, duration: float, vibrato: int=10, elasticity: float=1):
+def twn_blendable_punch_rotation(target, punch: Vector3, duration: float, vibrato: int=10, elasticity: float=1):
+    if duration <= 0:
+        return None
     writer = _rotation_writer(target, "local_rotation", RotateMode.LOCAL_AXIS_ADD)
     tween = _punch_tween(lambda: Vector3(0, 0, 0), writer, punch, duration, vibrato, elasticity)
     return None if tween is None else _default_manager.add(tween).set_target(target)
 
 
-def do_spiral(target, duration, axis=None, mode=SpiralMode.EXPAND, speed=1.0, frequency=10.0, depth=0.0, snapping=False):
-    axis = Vector3(0, 0, 1) if axis is None else _vector(axis)
-    if axis.sqr_magnitude == 0:
-        raise ValueError("Spiral axis must be nonzero")
-    axis = axis.normalized
+def twn_spiral(target, duration, axis=None, mode=SpiralMode.EXPAND, speed=1.0, frequency=10.0, depth=0.0, snapping=False):
     if not isinstance(mode, SpiralMode):
         raise TypeError("mode must be SpiralMode")
-    reference = Vector3(0, 1, 0) if abs(axis.y) < 0.9 else Vector3(1, 0, 0)
-    horizontal = Vector3.cross(reference, axis).normalized
-    vertical = Vector3.cross(axis, horizontal)
-    def sample(start, progress, relative):
-        elapsed = progress*duration*speed
-        radius = elapsed if mode == SpiralMode.EXPAND else duration*speed*(1-abs(2*progress-1))
-        angle = elapsed*frequency
-        return start+(horizontal*cos(angle)+vertical*sin(angle))*radius+axis*(depth*progress)
+    if not isinstance(target, (Transform, Rigidbody)):
+        raise TypeError("Spiral target must be Transform or Rigidbody")
+    axis = SpiralPlugin.default_direction if axis is None else _vector(axis)
+    if axis.sqr_magnitude < 1e-10:  # Unity Vector3 equality, not exact component equality.
+        axis = SpiralPlugin.default_direction
+    speed = _f32(speed)
+    if abs(speed) < 8 * _f32(1.401298464324817e-45):
+        speed = 1.0
     name = "position" if isinstance(target, Rigidbody) else "local_position"
-    return _default_manager.add(_target_motion(target, name, duration, sample, snapping))
+    apply = target.move_position if isinstance(target, Rigidbody) else lambda value: setattr(target, name, value)
+
+    def write(value):
+        # Unity rejects an invalid Transform/physics assignment. Keep that
+        # shortcut behavior without changing what a generic plugin setter sees.
+        if all(isfinite(component) for component in value):
+            apply(value)
+        else:
+            Debug.log_error("Spiral produced a nonfinite position; the target pose was retained", context=target)
+
+    tween = _default_manager.to(SpiralPlugin.get(), lambda: getattr(target, name), write, axis, _f32(duration)).set_target(target)
+    options = tween.plug_options
+    options.mode, options.speed = mode, speed
+    options.frequency, options.depth, options.snapping = _f32(frequency), _f32(depth), snapping
+    return tween

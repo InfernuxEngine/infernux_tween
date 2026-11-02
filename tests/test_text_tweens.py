@@ -65,8 +65,8 @@ def test_character_and_range_sequence_share_one_upload_per_update(text):
             setattr(animator, property_name, None)
     sequence = tween_api.sequence().set_auto_kill(False)
     for index in (0, 1):
-        sequence.join(animator.do_offset_char(index, Vector3(10, 20, 30), 1).set_ease(Ease.LINEAR))
-    sequence.join(animator.range(0, 2).do_fade(0, 1).set_ease(Ease.LINEAR))
+        sequence.join(animator.twn_offset_char(index, Vector3(10, 20, 30), 1).set_ease(Ease.LINEAR))
+    sequence.join(animator.range(0, 2).twn_fade(0, 1).set_ease(Ease.LINEAR))
     tween_api.update(0.5)
     assert uploads == [TextGeometryLayer.Manual]
     assert np.all(animator.buffer.affine_transforms[:2, :, 3] == (5, -10, 15))
@@ -82,36 +82,72 @@ def test_character_and_range_sequence_share_one_upload_per_update(text):
     assert set(uploads+resets) == {TextGeometryLayer.Manual}
 
 
-def test_character_relative_from_speed_and_killed_sequence_child(text):
+def test_independent_text_owners_commit_once_each_without_requiring_an_owner_hash(text):
+    target, uploads, _ = text
+    other_uploads = []
+    other = SimpleNamespace(layout=layout(), color=[1, 1, 1, 1])
+    other.get_text_layout = lambda: other.layout
+    other.create_character_buffer = lambda: Buffer(len(other.layout.characters))
+    other.set_character_data = lambda buffer, layer: other_uploads.append(layer)
+    other.reset_character_data = lambda layer: None
+
+    class UnhashableAnimator(TextTweenAnimator):
+        __hash__ = None
+        def __eq__(self, other):
+            return self is other
+
+    first, second = UnhashableAnimator(target), UnhashableAnimator(other)
+    first.range(0, 2).twn_offset(Vector3(10, 20, 30), 1).set_ease(Ease.LINEAR)
+    first.range(2, 2).twn_scale(2, 1).set_ease(Ease.LINEAR)
+    second.range(0, 2).twn_offset(Vector3(4, 8, 12), 1).set_ease(Ease.LINEAR)
+    second.range(2, 2).twn_fade(0, 1).set_ease(Ease.LINEAR)
+    tween_api.update(.25)
+    assert uploads == other_uploads == [TextGeometryLayer.Manual]
+    assert np.all(first.buffer.affine_transforms[:2, :, 3] == (2.5, -5, 7.5))
+    assert np.all(second.buffer.affine_transforms[:2, :, 3] == (1, -2, 3))
+    assert np.all(second.buffer.colors[2:, :, 3] == .75)
+    tween_api.update(.25)
+    assert len(uploads) == len(other_uploads) == 2
+    first.dispose()
+    second.dispose()
+
+
+def test_character_relative_from_speed_and_sequence_owned_kill(text):
     target, uploads, _ = text
     animator = TextTweenAnimator(target)
     animator.set_char_offset(0, Vector3(1, 2, 3))
-    move = animator.do_offset_char(0, Vector3(3, 4, 0), 2).set_relative().set_ease(Ease.LINEAR).set_speed_based()
+    move = animator.twn_offset_char(0, Vector3(3, 4, 0), 2).set_relative().set_ease(Ease.LINEAR).set_speed_based()
     move.force_init()
     assert move.duration() == pytest.approx(2.5)
     move.goto(1.25)
     assert vector(animator.get_char_offset(0)) == pytest.approx((2.5, 4, 3))
     move.kill()
-    scale = animator.do_scale_char(1, 0, 1).from_().set_ease(Ease.LINEAR)
+    scale = animator.twn_scale_char(1, 0, 1).from_().set_ease(Ease.LINEAR)
     assert vector(animator.get_char_scale(1)) == (0, 0, 0)
     scale.complete()
     assert vector(animator.get_char_scale(1)) == (1, 1, 1)
-    dead = animator.do_rotate_char(0, Vector3(0, 0, 90), 1).set_ease(Ease.LINEAR)
-    live = animator.do_rotate_char(1, Vector3(0, 0, 60), 1).set_ease(Ease.LINEAR)
+    dead = animator.twn_rotate_char(0, Vector3(0, 0, 90), 1).set_ease(Ease.LINEAR)
+    live = animator.twn_rotate_char(1, Vector3(0, 0, 60), 1).set_ease(Ease.LINEAR)
     sequence = tween_api.sequence().join(dead).join(live)
     tween_api.update(0.25)
     dead.kill()
     stopped = animator.get_char_rotation(0)
     tween_api.update(0.25)
-    assert vector(animator.get_char_rotation(0)) == pytest.approx(vector(stopped))
+    assert dead.is_active()  # Public child Kill is ignored until the owner kills it.
+    assert vector(stopped) == pytest.approx((0, 0, 22.5))
+    assert vector(animator.get_char_rotation(0)) == pytest.approx((0, 0, 45))
     assert vector(animator.get_char_rotation(1)) == pytest.approx((0, 0, 30))
     sequence.kill()
+    assert not dead.is_active() and not live.is_active()
+    stopped = animator.get_char_rotation(0)
+    tween_api.update(0.25)
+    assert vector(animator.get_char_rotation(0)) == pytest.approx(vector(stopped))
 
 
 def test_character_group_explicit_from_and_value_changes_keep_one_shared_buffer(text):
     target, uploads, _ = text
     animator = TextTweenAnimator(target)
-    tween = animator.range(0, 2).do_scale(2, 1).from_(0.25, False).set_ease(Ease.LINEAR).set_auto_kill(False)
+    tween = animator.range(0, 2).twn_scale(2, 1).from_(0.25, False).set_ease(Ease.LINEAR).set_auto_kill(False)
     assert np.all(animator.buffer.affine_transforms[:, :, :3] == np.eye(3))
     tween.goto(0.5)
     assert np.all(animator.buffer.affine_transforms[:2, :, :3] == np.eye(3)*1.125)
@@ -123,16 +159,16 @@ def test_character_group_explicit_from_and_value_changes_keep_one_shared_buffer(
     assert set(uploads) == {TextGeometryLayer.Manual}
     tween.kill()
     from infernux_tween import AxisConstraint
-    axes = animator.range(0, 2).do_offset(Vector3(100, 8, 100), 4).set_options(AxisConstraint(4)).set_speed_based().set_ease(Ease.LINEAR)
+    axes = animator.range(0, 2).twn_offset(Vector3(100, 8, 100), 4).set_options(AxisConstraint(4)).set_speed_based().set_ease(Ease.LINEAR)
     axes.force_init()
     assert axes.duration() == 2
     axes.goto(0.5)
     assert np.all(animator.buffer.affine_transforms[:2, :, 3] == (0, -2, 0))
     axes.kill()
-    snapped = animator.range(0, 2).do_offset(Vector3(2, 4, 6), 1).set_options(True).from_(Vector3(0.2, 0.6, 1.2))
+    snapped = animator.range(0, 2).twn_offset(Vector3(2, 4, 6), 1).set_options(True).from_(Vector3(0.2, 0.6, 1.2))
     assert np.all(animator.buffer.affine_transforms[:2, :, 3] == (0, -1, 1))
     snapped.kill()
-    faded = animator.range(0, 2).do_color((0, 0, 0, 1), 1).set_options(True).from_(0.5).set_ease(Ease.LINEAR)
+    faded = animator.range(0, 2).twn_color((0, 0, 0, 1), 1).set_options(True).from_(from_alpha_value=0.5).set_ease(Ease.LINEAR)
     assert np.all(animator.buffer.colors[:2, :, :3] == 1)
     assert np.all(animator.buffer.colors[:2, :, 3] == 0.5)
     assert np.all(animator.buffer.color_overrides[:2] == 2)
@@ -144,20 +180,20 @@ def test_character_group_explicit_from_and_value_changes_keep_one_shared_buffer(
 def test_layout_revision_retires_old_indices_and_preserves_other_layers(text):
     target, uploads, resets = text
     animator = TextTweenAnimator(target)
-    tween = animator.word(0).do_offset(Vector3(10, 0, 1), 1)
+    tween = animator.word(0).twn_offset(Vector3(10, 0, 1), 1)
     tween_api.update(0.2)
     target.layout = layout(1)
     tween_api.update(0.2)
     assert not tween.is_active()
     assert animator.buffer.character_count == 1
     assert len(uploads) == 1
-    fresh = animator.line(0).do_color((1, 0, 0, 0.5), 1).set_ease(Ease.LINEAR)
+    fresh = animator.line(0).twn_color((1, 0, 0, 0.5), 1).set_ease(Ease.LINEAR)
     tween_api.update(1)
     assert np.all(animator.buffer.colors[:, :, 0] == 1)
     assert np.all(animator.buffer.colors[:, :, 1:3] == 0)
     assert set(uploads+resets) == {TextGeometryLayer.Manual}
     animator.reset()
-    old = animator.do_offset_char(0, Vector3(2, 3, 4), 1)
+    old = animator.twn_offset_char(0, Vector3(2, 3, 4), 1)
     replacement = TextTweenAnimator(target)
     assert animator._disposed and not old.is_active()
     replacement.set_char_offset(0, Vector3(5, 6, 7))
@@ -176,9 +212,9 @@ def test_layout_revision_retires_old_indices_and_preserves_other_layers(text):
     def create_during_kill():
         current = TextTweenAnimator(target)
         spawned.append(current)
-        current.do_offset_char(0, Vector3(0, 0, 4), 1)
+        current.twn_offset_char(0, Vector3(0, 0, 4), 1)
 
-    pending = original.do_offset_char(0, Vector3(4, 0, 0), 1).on_kill(create_during_kill)
+    pending = original.twn_offset_char(0, Vector3(4, 0, 0), 1).on_kill(create_during_kill)
     outer = TextTweenAnimator(target)
     assert original._disposed and outer._disposed and not pending.is_active()
     assert len(spawned) == 1 and not spawned[0]._disposed
@@ -188,17 +224,18 @@ def test_layout_revision_retires_old_indices_and_preserves_other_layers(text):
     TextTweenAnimator.dispose_instance_for(target)
 
 
-def test_faulted_root_is_retired_without_repeating_callback_side_effects(text):
+def test_unsafe_callback_propagates_without_retiring_the_completed_root(text, monkeypatch):
+    monkeypatch.setattr(tween_api._default_manager, "use_safe_mode", False)
     target, uploads, _ = text
     animator, events = TextTweenAnimator(target), []
     def fail():
         events.append("attempt")
         raise RuntimeError("Failed user action")
-    sequence = tween_api.sequence().append(animator.do_scale_char(0, 2, 0.5)).append_callback(fail)
-    healthy = animator.do_offset_char(1, Vector3(4, 0, 2), 1).set_ease(Ease.LINEAR)
+    sequence = tween_api.sequence().append(animator.twn_scale_char(0, 2, 0.5)).append_callback(fail)
+    healthy = animator.twn_offset_char(1, Vector3(4, 0, 2), 1).set_ease(Ease.LINEAR)
     with pytest.raises(RuntimeError, match="Failed user action"):
         tween_api.update(0.5)
-    assert not sequence.is_active() and events == ["attempt"]
+    assert sequence.is_active() and not sequence.is_playing() and events == ["attempt"]
     assert len(uploads) == 1
     tween_api.update(1)
     assert events == ["attempt"] and not healthy.is_active()
@@ -241,9 +278,9 @@ def test_invisible_and_invalid_characters_are_noops_and_spans_include_the_last_i
     target.layout.glyphs[1].visible = False
     animator = TextTweenAnimator(target)
     for index in (-1, 1, 4):
-        assert animator.do_offset_char(index, Vector3(1, 2, 3), 1) is None
-        assert animator.do_rotate_char(index, Vector3(4, 5, 6), 1) is None
-        assert animator.do_scale_char(index, 2, 1) is None
+        assert animator.twn_offset_char(index, Vector3(1, 2, 3), 1) is None
+        assert animator.twn_rotate_char(index, Vector3(4, 5, 6), 1) is None
+        assert animator.twn_scale_char(index, 2, 1) is None
         assert animator.set_char_offset(index, Vector3(1, 2, 3)) is None
         assert animator.set_char_color(index, [0, 0, 0, 0]) is None
         assert vector(animator.get_char_scale(index)) == (0, 0, 0)
@@ -274,14 +311,14 @@ def test_invisible_and_invalid_characters_are_noops_and_spans_include_the_last_i
 def test_character_motion_uses_the_shared_clock_one_upload_and_exact_rest_values(text):
     target, uploads, _ = text
     animator = TextTweenAnimator(target)
-    punch = animator.do_punch_char_offset(0, Vector3(2, 4, 6), 1, 2, 0.5).set_auto_kill(False)
-    shake = animator.do_shake_char_scale(1, 1, 0.5, 4, 90, True).set_auto_kill(False)
-    rotation = animator.do_shake_char_rotation(2, 1, Vector3(20, 30, 40), 4, 90, True).set_auto_kill(False)
+    punch = animator.twn_punch_char_offset(0, Vector3(2, 4, 6), 1, 2, 0.5).set_auto_kill(False)
+    shake = animator.twn_shake_char_scale(1, 1, 0.5, 4, 90, True).set_auto_kill(False)
+    rotation = animator.twn_shake_char_rotation(2, 1, Vector3(20, 30, 40), 4, 90, True).set_auto_kill(False)
     punch.from_(Vector3(90, 90, 90))
     assert not uploads
     tween_api.update(0.125)
     assert len(uploads) == 1
-    assert vector(animator.get_char_offset(0)) == pytest.approx((1.53125, 3.0625, 4.59375))
+    assert vector(animator.get_char_offset(0)) == pytest.approx((1.21875, 2.4375, 3.65625))
     assert animator.get_char_scale(1).z != 1 and animator.get_char_rotation(2).z != 0
     retained = animator.buffer.affine_transforms.copy()
     for tween in (punch, shake, rotation):
@@ -291,18 +328,18 @@ def test_character_motion_uses_the_shared_clock_one_upload_and_exact_rest_values
     assert vector(animator.get_char_offset(0)) == pytest.approx((0, 0, 0), abs=1e-6)
     assert vector(animator.get_char_scale(1)) == pytest.approx((1, 1, 1))
     assert vector(animator.get_char_rotation(2)) == pytest.approx((0, 0, 0), abs=1e-5)
-    assert animator.do_punch_char_scale(0, 1, 0) is None
+    assert animator.twn_punch_char_scale(0, 1, 0) is None
     with pytest.raises(TypeError, match="Vector3"):
-        animator.do_shake_char_rotation(0, 1, 2)
+        animator.twn_shake_char_rotation(0, 1, 2)
 
 
 def test_parent_incremental_rotation_mode_color_and_range_value_changes_share_settings(text):
     target, uploads, _ = text
     animator = TextTweenAnimator(target)
     animator.set_char_rotation(0, Vector3(0, 0, 350))
-    rotate = animator.do_rotate_char(0, Vector3(0, 0, 10), 1, RotateMode.FAST).set_ease(Ease.LINEAR)
-    scale = animator.do_scale_char(1, Vector3(2, 3, 4), 1).set_ease(Ease.LINEAR)
-    batch = animator.range(2, 2).do_offset(Vector3(1, 2, 3), 1).set_ease(Ease.LINEAR)
+    rotate = animator.twn_rotate_char(0, Vector3(0, 0, 10), 1, RotateMode.FAST).set_ease(Ease.LINEAR)
+    scale = animator.twn_scale_char(1, Vector3(2, 3, 4), 1).set_ease(Ease.LINEAR)
+    batch = animator.range(2, 2).twn_offset(Vector3(1, 2, 3), 1).set_ease(Ease.LINEAR)
     sequence = tween_api.sequence().join(rotate).join(scale).join(batch).set_loops(2, LoopType.INCREMENTAL)
     tween_api.update(1.5)
     assert len(uploads) == 2  # immediate rotation setter, then the shared frame commit
@@ -310,8 +347,8 @@ def test_parent_incremental_rotation_mode_color_and_range_value_changes_share_se
     assert vector(animator.get_char_scale(1)) == pytest.approx((2.5, 4, 5.5))
     assert animator.buffer.affine_transforms[2:, :, 3] == pytest.approx(np.array([[1.5, -3, 4.5]]*2))
     sequence.kill()
-    color = animator.do_color_char(0, [0, 0.5, 1, 0.25], 1).set_ease(Ease.LINEAR)
-    alpha = animator.do_fade_char(1, 0, 1).from_(0.5).set_ease(Ease.LINEAR)
+    color = animator.twn_color_char(0, [0, 0.5, 1, 0.25], 1).set_ease(Ease.LINEAR)
+    alpha = animator.twn_fade_char(1, 0, 1).from_(0.5).set_ease(Ease.LINEAR)
     tween_api.update(0.5)
     assert animator.get_char_color(0) == pytest.approx([0.5, 0.75, 1, 0.625])
     assert animator.get_char_color(1) == pytest.approx([1, 1, 1, 0.25])
@@ -323,7 +360,7 @@ def test_parent_incremental_rotation_mode_color_and_range_value_changes_share_se
     assert animator.get_char_color(0) == [0.5, 0, 0, 0]
     animator.set_char_offset(0, Vector3(1, 2, 3))
     assert np.all(animator.buffer.color_overrides == 0) and np.all(animator.buffer.colors == 1)
-    fade = animator.do_fade_char(0, 1, 1).set_ease(Ease.LINEAR)
+    fade = animator.twn_fade_char(0, 1, 1).set_ease(Ease.LINEAR)
     tween_api.update(0.5)
     assert animator.buffer.color_overrides[0] == 2
     assert animator.get_char_color(0) == [0.5, 0, 0, 0.5]

@@ -6,6 +6,22 @@ from infernux.lib import Vector3
 from infernux_tween import AxisConstraint, Ease, LoopType, TweenManager
 
 
+@pytest.mark.parametrize('source_kind', ['tween', 'parameters'])
+def test_set_as_accepts_the_named_source_and_preserves_the_receiving_target(source_kind):
+    from infernux_tween import TweenParams
+    manager, values, target = TweenManager(), [], object()
+    source = (manager.to(lambda: 0., lambda value: None, 1., 1.) if source_kind == 'tween'
+              else TweenParams())
+    source.set_ease(Ease.LINEAR).set_delay(.25).set_loops(2, LoopType.YOYO)
+    handle = manager.to(lambda: 0., values.append, 8., 1.).set_target(target)
+    settings = {'as_tween': source} if source_kind == 'tween' else {'tween_params': source}
+    assert handle.set_as(**settings) is handle
+    assert handle.target is target and handle.loops() == 2 and handle.loop_type == LoopType.YOYO
+    manager.update(.75)
+    assert values[-1] == 4.
+    manager.clear()
+
+
 def test_speed_based_capture_and_zero_distance():
     manager, value = TweenManager(), [(1.0, 2.0)]
     tween = manager.to(lambda: value[0], lambda item: value.__setitem__(0, item), (4, 6), 2).set_speed_based().set_ease(Ease.LINEAR)
@@ -90,8 +106,10 @@ def test_explicit_relative_from_captures_both_endpoints_before_delayed_playback(
     manager.update(0.1)
     assert value[0] == (100, 200)
     manager.update(0.1)
-    assert value[0] == (15, 26)
-    manager.update(0.5)
+    assert value[0] == (100, 200)
+    manager.update(0.25)
+    assert value[0] == pytest.approx((18.75, 34.5))
+    manager.update(0.25)
     assert value[0] == pytest.approx((22.5, 43))
 
 
@@ -100,7 +118,8 @@ def test_explicit_numeric_from_retains_float_sampling_and_can_configure_speed_af
     tween = manager.to(lambda: value[0], lambda item: value.__setitem__(0, item), 20.0, 5)
     tween.from_(5).set_speed_based().set_ease(Ease.LINEAR)
     assert value[0] == pytest.approx(5)
-    tween.force_init().force_init()
+    tween.force_init()
+    tween.force_init()
     assert tween.duration() == pytest.approx(3)
     manager.update(0.1)
     assert value[0] == pytest.approx(5.5)
@@ -128,7 +147,7 @@ def test_change_values_rewinds_without_replaying_delay_or_start_callbacks(state)
     elif state == "backwards":
         tween.play_backwards()
     tween.change_end_value(30.0, 2, snap_start_value=True)
-    assert value[0] == 2.5 and tween.position == 0.5 and tween.duration() == 2
+    assert value[0] == 2.5 and tween.position == 0 and tween.elapsed_delay() == .5 and tween.duration() == 2
     assert tween.is_playing() == (state == "playing")
     assert tween.is_backwards() == (state == "backwards")
     manager.update(0.2)
@@ -147,7 +166,7 @@ def test_change_start_before_initialization_uses_the_new_relative_base_and_keeps
     tween.set_relative().set_delay(1).set_ease(Ease.LINEAR)
     manager.update(0.3)
     tween.change_start_value(5.0)
-    assert tween.position == pytest.approx(0.3) and value[0] == 5
+    assert tween.position == 0 and tween.elapsed_delay() == pytest.approx(0.3) and value[0] == 5
     manager.update(0.7)
     assert value[0] == pytest.approx(5)
     manager.update(0.5)
@@ -292,7 +311,8 @@ def test_settings_queries_fillable_lists_and_combined_target_id_controls():
     manager, target, value = TweenManager(), object(), [0.0]
     params = TweenParams().set_id('shared').set_loops(2, LoopType.YOYO).set_delay(0.5).set_ease(Ease.LINEAR)
     tween = manager.to(lambda: value[0], lambda v: value.__setitem__(0, v), 10., 1).set_target(target).set_as(params).set_auto_kill(False)
-    tween.force_init().set_loops(3)
+    tween.force_init()
+    tween.set_loops(3)
     assert tween.is_initialized() and tween.loop_type is LoopType.YOYO and tween.loops() == 3
     manager.update(0.25)
     assert tween.delay() == 0.5 and tween.elapsed_delay() == 0.25 and tween.elapsed() == 0
@@ -303,7 +323,7 @@ def test_settings_queries_fillable_lists_and_combined_target_id_controls():
     assert manager.total_tweens_by_id('shared') == manager.total_active_tweeners() == 1
     assert manager.total_active_sequences() == 0
     manager.restart(target, 'shared', False, 0.2)
-    assert tween.delay() == 0.2 and tween.elapsed() == 0
+    assert tween.delay() == 0.20000000298023224 and tween.elapsed() == 0
     manager.default_update_type, manager.default_time_scale_independent = UpdateType.LATE, True
     tween.set_update(True)
     assert tween.update_type is UpdateType.LATE and tween.is_time_scale_independent()
@@ -342,7 +362,8 @@ def test_play_controls_respect_endpoints_direction_and_affected_counts():
     assert manager.play_forward_all() == 0
     manager.update(0.1)
     assert value[0] == pytest.approx(8.5)
-    tween.rewind().play_backwards()
+    tween.rewind()
+    tween.play_backwards()
     assert not tween.is_playing() and manager.play_all() == 0
     tween.restart()
     assert tween.is_playing()
@@ -364,20 +385,20 @@ def test_tween_params_capture_defaults_and_keep_their_own_overloads(monkeypatch)
     assert tween.target is target and not tween.auto_kill
     assert tween.loop_type is LoopType.YOYO and tween.loops() == 3
     assert tween.update_type is UpdateType.FIXED and tween.independent
-    assert tween._ease_args == (2.75, 0.4)
+    assert tween._ease_args == (2.75, 0.4000000059604645)
     params.set_update(UpdateType.LATE)
     tween.set_as(params)
     assert tween.update_type is UpdateType.LATE and not tween.independent
     params.set_update(True).set_ease(Ease.OUT_ELASTIC, period=0.2)
     tween.set_as(params)
     assert tween.update_type is UpdateType.FIXED and tween.independent
-    assert tween._ease_args == (2.75, 0.2)
+    assert tween._ease_args == (2.75, 0.20000000298023224)
     params.set_ease(Ease.OUT_BACK, overshoot_or_amplitude=4)
     tween.set_as(params)
-    assert tween._ease_args == (4, 0.4)
+    assert tween._ease_args == (4, 0.4000000059604645)
     params.set_ease(Ease.IN_ELASTIC, None, None)
     tween.set_as(params)
-    assert tween._ease_args == (2.75, 0.4)
+    assert tween._ease_args == (2.75, 0.4000000059604645)
     params.clear().set_ease(custom_ease=lambda t, d, a, p: t/d)
     tween.set_as(params).goto(0.5)
     assert value[0] == 5 and params._settings.target is None

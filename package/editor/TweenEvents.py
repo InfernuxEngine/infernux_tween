@@ -151,6 +151,17 @@ def draw_events(ctx, component):
         field = 'on_'+name+'_entries'
         ctx.push_id_str(field)
         try:
+            if name != "kill":
+                flag = "has_on_" + name
+                enabled = getattr(component, flag)
+                metadata = get_serialized_fields(type(component))[flag]
+                label = translate("tween.on_" + name)
+                updated = render_serialized_field(ctx, "##enabled", label, metadata, enabled,
+                                                  max_label_w(ctx, [label]))
+                if updated != enabled:
+                    ComponentCommandService.require().set_field(component, flag, updated)
+                if not updated:
+                    continue
             entries = getattr(component, field)
             if not IGUI.list_header(ctx, translate('tween.on_'+name), len(entries),
                     on_add=lambda field=field: _edit(component, field, lambda items: items.append(TweenCallback())), level='primary'):

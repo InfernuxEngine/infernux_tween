@@ -2,89 +2,142 @@
 from math import isfinite
 
 from .core import (
-    AutoPlay, AxisConstraint, LoopType, OnEnableBehaviour, OnDisableBehaviour,
+    AutoPlay, AxisConstraint, LogBehaviour, RewindCallbackMode, SafeModeLogBehaviour, NestedTweenFailureBehaviour, LoopType, OnEnableBehaviour, OnDisableBehaviour,
     Sequence, Tween, Tweener, TweenManager, TweenParams, UpdateType, VisualManagerPreset, _default_manager,
 )
-from .curve import EaseCurve
-from .ease import Ease, stop_motion
+from .curve import EaseCurve, CubicBezier, TweenCurve
+from .rect import switch_to_rect_transform, RectOffsetPlugin
+from .ease import Bounce, Ease, EaseFactory, EaseManager, Flash, stop_motion
 from .link import LinkBehaviour
 from .motion import ShakeRandomnessMode, SpiralMode
-from .path import Path, PathMode, PathType, PathTween
-from .rotation import RotateMode
+from .path import HandlesDrawMode, HandlesType, OrientType, Path, PathMode, PathType, PathTween, PathOptions, PathPlugin, ControlPoint, ControlPointArray, Float32Array, TweenInspectorMode
+from .plugin import AbsTweenPlugin, NoOptions, TweenerCore, UpdateNotice
+from ._builtin_plugins import FloatOptions, VectorOptions, ColorOptions, UintOptions, RectOptions, Vector3ArrayOptions
+from ._builtin_plugins import (FloatPlugin, DoublePlugin, IntPlugin, LongPlugin, UintPlugin, UlongPlugin,
+    Vector2Plugin, Vector3Plugin, Vector4Plugin, ColorPlugin, RectPlugin, StringPlugin, QuaternionPlugin, Vector3ArrayPlugin)
+from .array import Vector3Array
+from .spiral import SpiralOptions, SpiralPlugin
+from .rotation import RotateMode, PureQuaternionPlugin, QuaternionOptions
+from .circle import CircleOptions, CirclePlugin, TweenUtils
 from .spring import Spring
-from .string import ScrambleMode
+from .string import ScrambleMode, StringOptions
 from .text import SkewSpanMode, TextTweenAnimator
 from .virtual import delayed_call, eased_value
 from .shortcuts import Color2, CultureInfo
-from .shortcuts import (
-    do_path,
-    do_local_path,
-    do_rotate_quaternion,
-    do_local_rotate_quaternion,
-    do_blendable_local_move_by,
-    do_blendable_move_by,
-    do_blendable_scale_by,
-    do_blendable_rotate_by,
-    do_blendable_local_rotate_by,
-    do_spiral,
-    do_jump,
-    do_local_jump,
-    do_punch_position,
-    do_punch_rotation,
-    do_punch_scale,
-    do_shake_position,
-    do_shake_rotation,
-    do_shake_scale,
-    do_move,
-    do_local_move,
-    do_scale,
-    do_rotate,
-    do_local_rotate,
-    do_look_at,
-    do_dynamic_look_at,
-    do_color,
-    do_blendable_color,
-    do_fade,
-    do_gradient_color,
-    do_value,
-    do_size_delta,
-    do_text,
-    do_counter,
-    do_max_visible_characters,
-    do_move_x,
-    do_move_y,
-    do_move_z,
-    do_local_move_x,
-    do_local_move_y,
-    do_local_move_z,
-    do_scale_x,
-    do_scale_y,
-    do_scale_z,
-    do_pitch,
-    do_intensity,
-    do_shadow_strength,
-    do_field_of_view,
-    do_ortho_size,
-    do_near_clip_plane,
-    do_far_clip_plane,
-    do_font_size,
-    do_time_scale,
-    do_float,
-    do_vector,
-    do_complete,
-    do_kill,
-    do_flip,
-    do_goto,
-    do_pause,
-    do_play,
-    do_play_backwards,
-    do_play_forward,
-    do_restart,
-    do_rewind,
-    do_smooth_rewind,
-    do_toggle_pause,
+from .yield_instruction import (
+    TweenYieldInstruction, WaitForCompletion, WaitForKill, WaitForStart,
+    WaitForRewind, WaitForElapsedLoops, WaitForPosition,
 )
-from .motion import do_blendable_punch_rotation
+from .editor_preview import TweenEditorPreview
+from .settings import SafeModeOptions, TweenSettings
+
+version = "0.3.1"
+from .shortcuts import (
+    twn_path,
+    twn_local_path,
+    twn_rotate_quaternion,
+    twn_local_rotate_quaternion,
+    twn_blendable_local_move_by,
+    twn_blendable_move_by,
+    twn_blendable_scale_by,
+    twn_blendable_rotate_by,
+    twn_blendable_local_rotate_by,
+    twn_spiral,
+    twn_jump,
+    twn_local_jump,
+    twn_punch_position,
+    twn_punch_rotation,
+    twn_punch_scale,
+    twn_shake_position,
+    twn_shake_rotation,
+    twn_shake_scale,
+    twn_offset,
+    twn_tiling,
+    twn_aspect,
+    twn_rect,
+    twn_pixel_rect,
+    twn_move,
+    twn_local_move,
+    twn_scale,
+    twn_rotate,
+    twn_local_rotate,
+    twn_look_at,
+    twn_dynamic_look_at,
+    twn_color,
+    twn_blendable_color,
+    twn_fade,
+    twn_gradient_color,
+    twn_value,
+    twn_normalized_pos,
+    twn_horizontal_normalized_pos,
+    twn_vertical_normalized_pos,
+    twn_set_float,
+    twn_size_delta,
+    twn_anchor_min,
+    twn_anchor_max,
+    twn_anchor_pos,
+    twn_anchor_pos_x,
+    twn_anchor_pos_y,
+    twn_anchor_pos3d,
+    twn_anchor_pos3d_x,
+    twn_anchor_pos3d_y,
+    twn_anchor_pos3d_z,
+    twn_jump_anchor_pos,
+    twn_punch_anchor_pos,
+    twn_shake_anchor_pos,
+    twn_shape_circle,
+    twn_pivot,
+    twn_pivot_x,
+    twn_pivot_y,
+    twn_min_size,
+    twn_preferred_size,
+    twn_flexible_size,
+    twn_fill_amount,
+    twn_text,
+    twn_counter,
+    twn_max_visible_characters,
+    twn_move_x,
+    twn_move_y,
+    twn_move_z,
+    twn_local_move_x,
+    twn_local_move_y,
+    twn_local_move_z,
+    twn_scale_x,
+    twn_scale_y,
+    twn_scale_z,
+    twn_pitch,
+    twn_intensity,
+    twn_shadow_strength,
+    twn_field_of_view,
+    twn_ortho_size,
+    twn_near_clip_plane,
+    twn_far_clip_plane,
+    twn_font_size,
+    twn_time_scale,
+    twn_resize,
+    twn_time,
+    twn_float,
+    twn_vector,
+    twn_complete,
+    twn_kill,
+    twn_flip,
+    twn_goto,
+    twn_pause,
+    twn_play,
+    twn_play_backwards,
+    twn_play_forward,
+    twn_restart,
+    twn_rewind,
+    twn_smooth_rewind,
+    twn_toggle_pause,
+)
+from .motion import twn_blendable_punch_rotation
+
+init = _default_manager.init
+set_tweens_capacity = _default_manager.set_tweens_capacity
+clear_cached_tweens = _default_manager.clear_cached_tweens
+validate = _default_manager.validate
+total_pooled_tweens = _default_manager.total_pooled_tweens
 
 add = _default_manager.add
 to = _default_manager.to
@@ -131,6 +184,7 @@ total_active_sequences = _default_manager.total_active_sequences
 total_tweens_by_id = _default_manager.total_tweens_by_id
 total_playing_tweens = _default_manager.total_playing_tweens
 get_diagnostics = _default_manager.get_diagnostics
+get_editor_report = _default_manager.get_editor_report
 clear = _default_manager.clear
 
 
@@ -145,11 +199,29 @@ def set_time_scale(value: float) -> None:
 
 
 __all__ = [
-    'SkewSpanMode', 'do_blendable_punch_rotation', 'AutoPlay', 'AxisConstraint', 'Ease', 'EaseCurve',
+    'SafeModeOptions', 'TweenSettings',
+    'RewindCallbackMode',
+    'TweenEditorPreview',
+    'TweenYieldInstruction', 'WaitForCompletion', 'WaitForKill', 'WaitForStart',
+    'WaitForRewind', 'WaitForElapsedLoops', 'WaitForPosition',
+    'version', 'instance',
+    'switch_to_rect_transform',
+    'get_editor_report',
+    'twn_normalized_pos', 'twn_horizontal_normalized_pos', 'twn_vertical_normalized_pos', 'twn_set_float',
+    'AbsTweenPlugin', 'NoOptions', 'TweenerCore', 'PureQuaternionPlugin', 'CircleOptions', 'CirclePlugin', 'UpdateNotice', 'EaseManager',
+    'FloatOptions', 'VectorOptions', 'ColorOptions', 'UintOptions', 'RectOptions', 'StringOptions', 'Vector3ArrayOptions', 'Vector3Array', 'QuaternionOptions',
+    'FloatPlugin', 'DoublePlugin', 'IntPlugin', 'LongPlugin', 'UintPlugin', 'UlongPlugin',
+    'Vector2Plugin', 'Vector3Plugin', 'Vector4Plugin', 'ColorPlugin', 'RectPlugin', 'StringPlugin', 'QuaternionPlugin', 'Vector3ArrayPlugin',
+    'RectOffsetPlugin',
+    'NestedTweenFailureBehaviour', 'LogBehaviour', 'SafeModeLogBehaviour', 'init', 'set_tweens_capacity', 'clear_cached_tweens', 'validate', 'total_pooled_tweens',
+    'SkewSpanMode', 'twn_blendable_punch_rotation', 'AutoPlay', 'AxisConstraint', 'Ease', 'EaseCurve',
     'OnEnableBehaviour', 'OnDisableBehaviour', 'VisualManagerPreset',
     'virtual', 'delayed_call', 'eased_value', 'stop_motion',
-    'LinkBehaviour', 'LoopType', 'Path', 'PathMode', 'PathType', 'PathTween', 'RotateMode',
-    'ScrambleMode', 'Sequence', 'ShakeRandomnessMode', 'SpiralMode', 'Spring', 'TextTweenAnimator',
+    'EaseFactory', 'CubicBezier', 'TweenCurve', 'Bounce', 'Flash', 'TweenUtils',
+    'LinkBehaviour', 'LoopType', 'OrientType', 'Path', 'PathMode', 'PathType', 'PathTween', 'PathOptions', 'PathPlugin',
+    'ControlPoint', 'ControlPointArray', 'Float32Array', 'RotateMode',
+    'HandlesDrawMode', 'HandlesType', 'TweenInspectorMode',
+    'ScrambleMode', 'Sequence', 'ShakeRandomnessMode', 'SpiralMode', 'SpiralOptions', 'SpiralPlugin', 'Spring', 'TextTweenAnimator',
     'Tween', 'Tweener', 'TweenManager', 'TweenParams', 'Color2', 'CultureInfo', 'UpdateType', 'add',
     'to', 'to_axis', 'to_alpha', 'to_array', 'punch', 'shake', 'sequence', 'update', 'manual_update',
     'play_all', 'play', 'play_forward_all', 'play_forward', 'play_backwards_all', 'play_backwards',
@@ -158,18 +230,59 @@ __all__ = [
     'complete', 'kill_all', 'kill',
     'goto_all', 'goto', 'is_tweening', 'tweens_by_id', 'tweens_by_target', 'playing_tweens',
     'paused_tweens', 'total_active_tweens', 'total_active_tweeners', 'total_active_sequences',
-    'total_tweens_by_id', 'total_playing_tweens', 'get_diagnostics', 'clear', 'do_path',
-    'do_local_path', 'do_rotate_quaternion', 'do_local_rotate_quaternion', 'do_blendable_local_move_by',
-    'do_blendable_move_by', 'do_blendable_scale_by', 'do_blendable_rotate_by',
-    'do_blendable_local_rotate_by', 'do_spiral', 'do_jump', 'do_local_jump', 'do_punch_position',
-    'do_punch_rotation', 'do_punch_scale', 'do_shake_position', 'do_shake_rotation', 'do_shake_scale',
-    'do_move', 'do_local_move', 'do_scale', 'do_rotate', 'do_local_rotate', 'do_look_at',
-    'do_dynamic_look_at', 'do_color', 'do_blendable_color', 'do_fade', 'do_gradient_color', 'do_value',
-    'do_size_delta', 'do_text', 'do_counter', 'do_max_visible_characters', 'do_move_x', 'do_move_y',
-    'do_move_z', 'do_local_move_x', 'do_local_move_y', 'do_local_move_z', 'do_scale_x', 'do_scale_y',
-    'do_scale_z', 'do_pitch', 'do_intensity', 'do_shadow_strength', 'do_field_of_view', 'do_ortho_size',
-    'do_near_clip_plane', 'do_far_clip_plane', 'do_font_size', 'do_time_scale', 'do_float', 'do_vector',
-    'do_complete', 'do_kill', 'do_flip', 'do_goto', 'do_pause', 'do_play', 'do_play_backwards',
-    'do_play_forward', 'do_restart', 'do_rewind', 'do_smooth_rewind', 'do_toggle_pause',
-    'get_time_scale', 'set_time_scale',
+    'total_tweens_by_id', 'total_playing_tweens', 'get_diagnostics', 'clear', 'twn_path',
+    'twn_local_path', 'twn_rotate_quaternion', 'twn_local_rotate_quaternion', 'twn_blendable_local_move_by',
+    'twn_blendable_move_by', 'twn_blendable_scale_by', 'twn_blendable_rotate_by',
+    'twn_blendable_local_rotate_by', 'twn_spiral', 'twn_jump', 'twn_local_jump', 'twn_punch_position',
+    'twn_punch_rotation', 'twn_punch_scale', 'twn_shake_position', 'twn_shake_rotation', 'twn_shake_scale',
+    'twn_offset', 'twn_tiling', 'twn_aspect', 'twn_rect', 'twn_pixel_rect', 'twn_move', 'twn_local_move', 'twn_scale', 'twn_rotate', 'twn_local_rotate', 'twn_look_at',
+    'twn_dynamic_look_at', 'twn_color', 'twn_blendable_color', 'twn_fade', 'twn_gradient_color', 'twn_value',
+    'twn_size_delta', 'twn_min_size', 'twn_preferred_size', 'twn_flexible_size', 'twn_fill_amount', 'twn_text', 'twn_counter', 'twn_max_visible_characters', 'twn_move_x', 'twn_move_y',
+    'twn_move_z', 'twn_local_move_x', 'twn_local_move_y', 'twn_local_move_z', 'twn_scale_x', 'twn_scale_y',
+    'twn_scale_z', 'twn_pitch', 'twn_intensity', 'twn_shadow_strength', 'twn_field_of_view', 'twn_ortho_size',
+    'twn_near_clip_plane', 'twn_far_clip_plane', 'twn_font_size', 'twn_time_scale', 'twn_resize', 'twn_time', 'twn_float', 'twn_vector',
+    'twn_complete', 'twn_kill', 'twn_flip', 'twn_goto', 'twn_pause', 'twn_play', 'twn_play_backwards',
+    'twn_play_forward', 'twn_restart', 'twn_rewind', 'twn_smooth_rewind', 'twn_toggle_pause',
+    'get_time_scale', 'set_time_scale', 'twn_pivot', 'twn_pivot_x', 'twn_pivot_y',
 ]
+
+
+# Module attributes forward the default manager's mutable settings.
+# Forward writes as well as reads: assigning a setting must affect playback.
+import sys as _sys
+from types import ModuleType as _ModuleType
+
+_CONFIG_FIELDS = frozenset((
+    "time_scale", "unscaled_time_scale", "use_safe_mode", "log_behaviour", "draw_gizmos", "show_editor_report",
+    "use_smooth_delta_time", "max_smooth_unscaled_time",
+    "nested_tween_failure_behaviour", "default_recyclable", "default_update_type",
+    "default_time_scale_independent", "default_auto_kill", "default_auto_play",
+    "default_loop_type", "default_ease_type", "default_ease_overshoot_or_amplitude",
+    "default_ease_period",
+    "debug_mode", "debug_store_target_id",
+    "safe_mode_log_behaviour", "rewind_callback_mode", "on_will_log",
+))
+__all__.extend(sorted(_CONFIG_FIELDS))
+
+
+class _TweenModule(_ModuleType):
+    def __dir__(self):
+        return sorted(set(super().__dir__()) | _CONFIG_FIELDS | {"instance"})
+
+    def __getattr__(self, name):
+        if name == "instance":
+            return _default_manager if _default_manager._initialized else None
+        if name in _CONFIG_FIELDS:
+            return getattr(_default_manager, name)
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    def __setattr__(self, name, value):
+        if name == "instance":
+            raise AttributeError("instance is read-only")
+        if name in _CONFIG_FIELDS:
+            setattr(_default_manager, name, value)
+        else:
+            super().__setattr__(name, value)
+
+
+_sys.modules[__name__].__class__ = _TweenModule

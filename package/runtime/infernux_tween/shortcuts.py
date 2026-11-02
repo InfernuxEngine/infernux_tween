@@ -1,23 +1,29 @@
 """Typed animation shortcuts for native scene and UI components."""
 
 from dataclasses import dataclass
-from functools import singledispatch
+from functools import singledispatch, partial
+from math import isnan
 from typing import overload
 
-from infernux.components.builtin import AudioSource, Camera, Light, LineRenderer, Rigidbody, SpriteRenderer
+from infernux.components.builtin import AudioSource, Camera, Light, LineRenderer, TrailRenderer, Rigidbody, SpriteRenderer
 from infernux.core.material import Material
+from infernux.screen import Rect
 from infernux.graph.ramp import Gradient
 from infernux.lib import Transform, Vector2, Vector3, quatf, vec4f
-from infernux.ui import InxUIScreenComponent, UIButton, UIGroup, UIImage, UISlider, UIText
+from infernux.ui import InxUIScreenComponent, UIButton, UIGroup, UIImage, UILayoutElement, UISlider, UIText
 
-from .core import _bind_arguments, _ColorTweener, _default_manager, AxisConstraint, Tween, Tweener, UpdateType
+from .core import _bind_arguments, _ColorTweener, _default_manager, _StartupDeclined, AxisConstraint, Tween, Tweener
 from .ease import Ease
-from .path import do_path, do_local_path
-from .rotation import do_rotate_quaternion, do_local_rotate_quaternion, EulerTweener, RotateMode
-from .motion import (do_blendable_local_move_by, do_blendable_move_by, do_blendable_scale_by,
-                     do_blendable_rotate_by, do_blendable_local_rotate_by, do_spiral,
-                     do_jump, do_local_jump, do_punch_position, do_punch_rotation, do_punch_scale,
-                     do_shake_position, do_shake_rotation, do_shake_scale)
+from .color import Color2
+from infernux.lib._Infernux import _LiveColor2TweenSnapshot
+from .motion import ShakeRandomnessMode, _jump, _punch_tween, _shake_offsets, _impulse_tween
+from .circle import CirclePlugin
+from .path import twn_path, twn_local_path
+from .rotation import twn_rotate_quaternion, twn_local_rotate_quaternion, EulerTweener, RotateMode
+from .motion import (twn_blendable_local_move_by, twn_blendable_move_by, twn_blendable_scale_by,
+                     twn_blendable_rotate_by, twn_blendable_local_rotate_by, twn_spiral,
+                     twn_jump, twn_local_jump, twn_punch_position, twn_punch_rotation, twn_punch_scale,
+                     twn_shake_position, twn_shake_rotation, twn_shake_scale)
 from .string import ScrambleMode, StringTweener
 
 
@@ -40,8 +46,6 @@ def _move(target, name, end_value, duration, snapping=False):
     elif not isinstance(target, Transform):
         raise TypeError("Motion shortcuts require a Transform or Rigidbody")
     tween = _default_manager.to(lambda: getattr(target, name), setter, end, duration).set_options(snapping).set_target(target)
-    if isinstance(target, Rigidbody):
-        tween.set_update(UpdateType.FIXED)
     return tween
 
 
@@ -52,49 +56,39 @@ def _axis(target, name, axis, end_value, duration, snapping=False):
         if name != "position":
             raise TypeError("Rigidbody motion uses world-space position")
         write = target.move_position
-        start = [None]
-
-        def getter():
-            if start[0] is None:
-                start[0] = target.position
-            return start[0]
 
     constraint = AxisConstraint(2 << axis)
     tween = _default_manager.to_axis(getter, write, end_value, duration, constraint).set_options(
         constraint, snapping).set_target(target)
-    if isinstance(target, Rigidbody):
-        tween.set_update(UpdateType.FIXED)
     return tween
 
 
-def do_move(target: Transform|Rigidbody, end_value: Vector3, duration: float, snapping: bool=False):
+def twn_move(target: Transform|Rigidbody, end_value: Vector3, duration: float, snapping: bool=False):
     return _move(target, "position", end_value, duration, snapping)
 
 
-def do_local_move(target: Transform, end_value: Vector3, duration: float, snapping: bool=False):
+def twn_local_move(target: Transform, end_value: Vector3, duration: float, snapping: bool=False):
     return _move(target, "local_position", end_value, duration, snapping)
 
 
 @overload
-def do_scale(target: Transform, end_value: Vector3, duration: float): ...
+def twn_scale(target: Transform, end_value: Vector3, duration: float): ...
 @overload
-def do_scale(target: Transform, end_value: float, duration: float): ...
-def do_scale(target, end_value, duration):
+def twn_scale(target: Transform, end_value: float, duration: float): ...
+def twn_scale(target, end_value, duration):
     if not isinstance(target, Transform):
-        raise TypeError("do_scale requires a Transform")
+        raise TypeError("twn_scale requires a Transform")
     end = Vector3(end_value, end_value, end_value) if isinstance(end_value, (int, float)) else _vector(end_value)
     return _property(target, "local_scale", end, duration)
 
 
-def do_rotate(target: Transform|Rigidbody, end_value: Vector3, duration: float, mode: RotateMode=RotateMode.FAST):
+def twn_rotate(target: Transform|Rigidbody, end_value: Vector3, duration: float, mode: RotateMode=RotateMode.FAST):
     setter = target.move_rotation if isinstance(target, Rigidbody) else lambda value: setattr(target, "rotation", value)
     tween = EulerTweener(lambda: target.rotation, setter, _vector(end_value), duration, mode).set_target(target)
-    if isinstance(target, Rigidbody):
-        tween.set_update(UpdateType.FIXED)
     return _default_manager.add(tween)
 
 
-def do_local_rotate(target: Transform, end_value: Vector3, duration: float, mode: RotateMode=RotateMode.FAST):
+def twn_local_rotate(target: Transform, end_value: Vector3, duration: float, mode: RotateMode=RotateMode.FAST):
     return _default_manager.add(EulerTweener(lambda: target.local_rotation,
         lambda value: setattr(target, "local_rotation", value), _vector(end_value), duration, mode)).set_target(target)
 
@@ -103,79 +97,88 @@ class _LookAtTweener(EulerTweener):
     def __init__(self, target, towards, duration, axis_constraint, up, dynamic=False):
         if not isinstance(axis_constraint, AxisConstraint):
             raise TypeError("axis_constraint must be AxisConstraint")
-        self._look_target = target
-        self._towards, self._up = _vector(towards), Vector3(0, 1, 0) if up is None else _vector(up)
-        self._look_constraint, self._dynamic = axis_constraint, dynamic
         setter = target.move_rotation if isinstance(target, Rigidbody) else lambda value: setattr(target, "rotation", value)
-        super().__init__(lambda: target.rotation, setter, Vector3(), duration)
+        super().__init__(lambda: target.rotation, setter, _vector(towards), duration)
+        self._towards = Vector3(*_vector(towards)) if dynamic else Vector3()
+        self._up = Vector3(0, 1, 0) if up is None else Vector3(*_vector(up))
+        self._constraint, self._dynamic = axis_constraint, dynamic
 
-    def _look_end(self):
-        direction = self._towards - self._look_target.position
-        if self._look_constraint in (AxisConstraint.X, AxisConstraint.Y, AxisConstraint.Z):
-            direction[(AxisConstraint.X, AxisConstraint.Y, AxisConstraint.Z).index(self._look_constraint)] = 0
+    def _ensure_initialized(self):
+        if not self._initialized and not isinstance(self.target, Transform):
+            # Special startup runs before getter conversion/change setup. Its
+            # false result retains zero Euler storage and the requested point.
+            self._initialized = self._euler = True
+            self._start, self._delta = Vector3(), Vector3()
+            self._integer = self._sequence_value = False
+            self._value_type = Vector3
+            self._compile_numeric_value()
+            raise _StartupDeclined()
+        return super()._ensure_initialized()
+
+    def _look_end(self, point):
+        direction = point - self.target.position
+        if self._constraint in (AxisConstraint.X, AxisConstraint.Y, AxisConstraint.Z):
+            direction[(AxisConstraint.X, AxisConstraint.Y, AxisConstraint.Z).index(self._constraint)] = 0
         return quatf.look_rotation(direction, self._up).euler_angles
 
     def _capture_values(self):
-        self._end = self._look_end()
+        self._end = self._look_end(self._end)
         return super()._capture_values()
 
-    def _apply(self, progress, cycle, previous, callbacks):
-        self._initialize()
-        if self._dynamic:
-            self._set_values(self._start, self._look_end())
-        super()._apply(progress, cycle, previous, callbacks)
-
-
-def do_look_at(target: Transform|Rigidbody, towards: Vector3, duration: float,
+def twn_look_at(target: Transform|Rigidbody, towards: Vector3, duration: float,
                axis_constraint: AxisConstraint=AxisConstraint.NONE, up: Vector3|None=None):
     tween = _LookAtTweener(target, towards, duration, axis_constraint, up).set_target(target)
-    if isinstance(target, Rigidbody):
-        tween.set_update(UpdateType.FIXED)
     return _default_manager.add(tween)
 
 
-def do_dynamic_look_at(target: Transform, towards: Vector3, duration: float,
+def twn_dynamic_look_at(target: Transform, towards: Vector3, duration: float,
                        axis_constraint: AxisConstraint=AxisConstraint.NONE, up: Vector3|None=None):
     if not isinstance(target, Transform):
-        raise TypeError("do_dynamic_look_at requires a Transform")
+        raise TypeError("twn_dynamic_look_at requires a Transform")
     return _default_manager.add(_LookAtTweener(target, towards, duration, axis_constraint, up, True)).set_target(target)
 
 
-@dataclass(frozen=True)
-class Color2:
-    ca: list[float]
-    cb: list[float]
+class _Color2Tweener(Tweener):
+    @staticmethod
+    def _copy_argument(value):
+        return value.__copy__()
 
-    def __iter__(self):
-        return iter((*self.ca, *self.cb))
+    def __init__(self, getter, setter, end_value, duration):
+        super().__init__(getter, setter, self._copy_argument(end_value), duration)
 
-    def __add__(self, other):
-        return Color2([a+b for a, b in zip(self.ca, other.ca, strict=True)],
-                      [a+b for a, b in zip(self.cb, other.cb, strict=True)])
+    def _compile_numeric_value(self):
+        self._numeric_value = _LiveColor2TweenSnapshot(self._start._native_pair, self._delta._native_pair)
+        self._bind_numeric_sampler()
 
-    def __sub__(self, other):
-        return Color2([a-b for a, b in zip(self.ca, other.ca, strict=True)],
-                      [a-b for a, b in zip(self.cb, other.cb, strict=True)])
+    def _distance(self):
+        return 1.0
 
-    def __mul__(self, factor):
-        return Color2([a*factor for a in self.ca], [a*factor for a in self.cb])
+    def _bind_numeric_sampler(self):
+        super()._bind_numeric_sampler()
+        if self._numeric_value is None:
+            return
+        if self._numeric_ease is None:
+            self._sample_numeric = partial(self._numeric_value.sample_custom, self._ease)
+            self._sample_numeric_nested = self._sample_numeric
 
 
 @overload
-def do_color(target: UIText|UIImage|UIButton|SpriteRenderer|Camera|Light, end_value: list[float], duration: float): ...
+def twn_color(target: UIText|UIImage|UIButton|SpriteRenderer|Camera|Light, end_value: list[float], duration: float): ...
 @overload
-def do_color(target: Material, end_value: list[float], duration: float): ...
+def twn_color(target: Material, end_value: list[float], duration: float): ...
 @overload
-def do_color(target: Material, end_value: list[float], property: str, duration: float): ...
+def twn_color(target: Material, end_value: list[float], property: str, duration: float): ...
 @overload
-def do_color(target: LineRenderer, start_value: Color2, end_value: Color2, duration: float): ...
-def do_color(target, *args, **kwargs):
+def twn_color(target: Material, end_value: list[float], property_id: int, duration: float): ...
+@overload
+def twn_color(target: LineRenderer, start_value: Color2, end_value: Color2, duration: float): ...
+def twn_color(target, *args, **kwargs):
     return _color(target, *args, **kwargs)
 
 
 @singledispatch
 def _color(target, *args, **kwargs):
-    raise TypeError(f"do_color does not support {type(target).__name__}")
+    raise TypeError(f"twn_color does not support {type(target).__name__}")
 
 
 @_color.register(UIText)
@@ -218,19 +221,26 @@ def _line_color(target, start_value, end_value, duration):
     if not isinstance(start_value, Color2) or not isinstance(end_value, Color2):
         raise TypeError("LineRenderer colors must be Color2")
     def write(value):
-        target.start_color, target.end_color = value.ca, value.cb
-    return _default_manager.add(Tweener(lambda: start_value, write, end_value, duration)).set_target(target)
+        if isinstance(value, Color2):
+            target.start_color, target.end_color = value.ca, value.cb
+        else:
+            target.start_color, target.end_color = value[:4], value[4:]
+    start_value = start_value.__copy__()
+    def read():
+        return start_value.__copy__()
+    return _default_manager.add(_default_manager._new(
+        _Color2Tweener, read, write, end_value, duration)).set_target(target)
 
 
-def _material_arguments(args, kwargs):
-    if len(args) == 2 or 'property' in kwargs or args and isinstance(args[0], str):
-        property, duration = _bind_arguments(('property', 'duration'), args, kwargs)
+def _material_arguments(args, kwargs, default="baseColor"):
+    if (len(args) == 2 or 'property' in kwargs or 'property_id' in kwargs
+            or args and ('duration' in kwargs or isinstance(args[0], str))):
+        key = 'property_id' if 'property_id' in kwargs else 'property'
+        property, duration = _bind_arguments((key, 'duration'), args, kwargs)
     else:
         duration, = _bind_arguments(('duration',), args, kwargs)
-        property = "baseColor"
-    if not isinstance(property, str):
-        raise TypeError("Material property must be str")
-    return property, duration
+        property = default
+    return Material.property_name(property), duration
 
 
 class _BlendableColorTween(_ColorTweener):
@@ -253,18 +263,20 @@ def _blendable_color_property(target, name, end_value, duration):
 
 
 @overload
-def do_blendable_color(target: UIText|UIImage|UIButton|SpriteRenderer|Camera|Light, end_value: list[float], duration: float): ...
+def twn_blendable_color(target: UIText|UIImage|UIButton|SpriteRenderer|Camera|Light, end_value: list[float], duration: float): ...
 @overload
-def do_blendable_color(target: Material, end_value: list[float], duration: float): ...
+def twn_blendable_color(target: Material, end_value: list[float], duration: float): ...
 @overload
-def do_blendable_color(target: Material, end_value: list[float], property: str, duration: float): ...
-def do_blendable_color(target, *args, **kwargs):
+def twn_blendable_color(target: Material, end_value: list[float], property: str, duration: float): ...
+@overload
+def twn_blendable_color(target: Material, end_value: list[float], property_id: int, duration: float): ...
+def twn_blendable_color(target, *args, **kwargs):
     return _blendable_color(target, *args, **kwargs)
 
 
 @singledispatch
 def _blendable_color(target, *args, **kwargs):
-    raise TypeError(f"do_blendable_color does not support {type(target).__name__}")
+    raise TypeError(f"twn_blendable_color does not support {type(target).__name__}")
 
 
 @_blendable_color.register(UIText)
@@ -299,18 +311,20 @@ def _blendable_material_color(target, end_value, *args, **kwargs):
 
 
 @overload
-def do_fade(target: InxUIScreenComponent|AudioSource|SpriteRenderer, end_value: float, duration: float): ...
+def twn_fade(target: InxUIScreenComponent|AudioSource|SpriteRenderer, end_value: float, duration: float): ...
 @overload
-def do_fade(target: Material, end_value: float, duration: float): ...
+def twn_fade(target: Material, end_value: float, duration: float): ...
 @overload
-def do_fade(target: Material, end_value: float, property: str, duration: float): ...
-def do_fade(target, *args, **kwargs):
+def twn_fade(target: Material, end_value: float, property: str, duration: float): ...
+@overload
+def twn_fade(target: Material, end_value: float, property_id: int, duration: float): ...
+def twn_fade(target, *args, **kwargs):
     return _fade(target, *args, **kwargs)
 
 
 @singledispatch
 def _fade(target, *args, **kwargs):
-    raise TypeError(f"do_fade does not support {type(target).__name__}")
+    raise TypeError(f"twn_fade does not support {type(target).__name__}")
 
 
 @_fade.register(InxUIScreenComponent)
@@ -372,18 +386,18 @@ def _gradient_color(target, gradient, duration, getter, setter):
 
 
 @overload
-def do_gradient_color(target: UIImage|SpriteRenderer, gradient: Gradient, duration: float): ...
+def twn_gradient_color(target: UIImage|SpriteRenderer, gradient: Gradient, duration: float): ...
 @overload
-def do_gradient_color(target: Material, gradient: Gradient, duration: float): ...
+def twn_gradient_color(target: Material, gradient: Gradient, duration: float): ...
 @overload
-def do_gradient_color(target: Material, gradient: Gradient, property: str, duration: float): ...
-def do_gradient_color(target, *args, **kwargs):
+def twn_gradient_color(target: Material, gradient: Gradient, property: str, duration: float): ...
+def twn_gradient_color(target, *args, **kwargs):
     return _gradient(target, *args, **kwargs)
 
 
 @singledispatch
 def _gradient(target, *args, **kwargs):
-    raise TypeError(f"do_gradient_color does not support {type(target).__name__}")
+    raise TypeError(f"twn_gradient_color does not support {type(target).__name__}")
 
 
 @_gradient.register(UIImage)
@@ -407,26 +421,233 @@ def _material_gradient(target, gradient, *args, **kwargs):
                            lambda value: target.set_color(property, *value))
 
 
-def do_value(target: UISlider, end_value: float, duration: float, snapping: bool=False):
+@overload
+def twn_offset(target: Material, end_value: Vector2, duration: float): ...
+@overload
+def twn_offset(target: Material, end_value: Vector2, property: str, duration: float): ...
+@overload
+def twn_offset(target: Material, end_value: Vector2, property_id: int, duration: float): ...
+def twn_offset(target, end_value, *args, **kwargs):
+    return _texture_transform_tween(target, end_value, args, kwargs, "offset")
+
+
+@overload
+def twn_tiling(target: Material, end_value: Vector2, duration: float): ...
+@overload
+def twn_tiling(target: Material, end_value: Vector2, property: str, duration: float): ...
+@overload
+def twn_tiling(target: Material, end_value: Vector2, property_id: int, duration: float): ...
+def twn_tiling(target, end_value, *args, **kwargs):
+    return _texture_transform_tween(target, end_value, args, kwargs, "scale")
+
+
+def _texture_transform_tween(target, end_value, args, kwargs, channel):
+    if not isinstance(target, Material):
+        raise TypeError("texture transforms require a Material")
+    name, duration = _material_arguments(args, kwargs, default="texSampler")
+    if not target.has_property(name):
+        return None
+    getter = getattr(target, "get_texture_" + channel)
+    setter = getattr(target, "set_texture_" + channel)
+    end = end_value if isinstance(end_value, Vector2) else Vector2(*end_value)
+    return _default_manager.to(lambda: getter(name), lambda value: setter(name, value), end, duration).set_target(target)
+
+
+def twn_aspect(target: Camera, end_value: float, duration: float):
+    """Animate the camera's projection aspect independently of viewport resizing."""
+    if not isinstance(target, Camera):
+        raise TypeError("twn_aspect requires a Camera")
+    return _property(target, "aspect_ratio", end_value, duration)
+
+
+def twn_rect(target: Camera, end_value: Rect, duration: float):
+    if not isinstance(target, Camera) or not isinstance(end_value, Rect):
+        raise TypeError("twn_rect requires a Camera and Rect")
+    return _property(target, "rect", end_value, duration)
+
+
+def twn_pixel_rect(target: Camera, end_value: Rect, duration: float):
+    if not isinstance(target, Camera) or not isinstance(end_value, Rect):
+        raise TypeError("twn_pixel_rect requires a Camera and Rect")
+    return _property(target, "pixel_rect", end_value, duration)
+
+
+def twn_value(target: UISlider, end_value: float, duration: float, snapping: bool=False):
     return _default_manager.to(lambda: target.value, target.set_value, end_value,
                                duration).set_options(snapping).set_target(target)
 
 
-def do_size_delta(target: InxUIScreenComponent, end_value: Vector2, duration: float, snapping: bool=False):
+def twn_normalized_pos(target, end_value: Vector2, duration: float, snapping: bool=False):
+    """Animate a scrolling target's writable Vector2 normalized_position."""
+    end = end_value if isinstance(end_value, Vector2) else Vector2(*end_value)
+    return _property(target, "normalized_position", end, duration).set_options(snapping)
+
+
+def twn_horizontal_normalized_pos(target, end_value: float, duration: float, snapping: bool=False):
+    """Animate horizontal_normalized_position, leaving the other axis to its owner."""
+    return _property(target, "horizontal_normalized_position", float(end_value), duration).set_options(snapping)
+
+
+def twn_vertical_normalized_pos(target, end_value: float, duration: float, snapping: bool=False):
+    """Animate vertical_normalized_position, leaving the other axis to its owner."""
+    return _property(target, "vertical_normalized_position", float(end_value), duration).set_options(snapping)
+
+
+def twn_set_float(target, float_name: str, end_value: float, duration: float):
+    """Animate an exposed parameter through get_float(name) / set_float(name, value).
+
+    get_float must return a numeric value. Parameter exposure, units and any
+    audio-thread publication belong to the target, not the tween scheduler.
+    """
+    read, write = target.get_float, target.set_float
+    return _default_manager.to(lambda: float(read(float_name)), lambda value: write(float_name, value),
+                               float(end_value), duration).set_target(target)
+
+
+def twn_fill_amount(target: UIImage, end_value: float, duration: float):
+    if not isinstance(target, UIImage):
+        raise TypeError("twn_fill_amount requires UIImage")
+    end_value=float(end_value)
+    if isnan(end_value):
+        raise ValueError("Image fill amount must not be NaN")
+    return _property(target, "fill_amount", max(0.0,min(1.0,end_value)), duration)
+
+
+def twn_pivot(target: InxUIScreenComponent, end_value: Vector2, duration: float):
+    end = end_value if isinstance(end_value, Vector2) else Vector2(*end_value)
+    return _default_manager.to(lambda: Vector2(*target.pivot), lambda value: setattr(target, 'pivot', value),
+                               end, duration).set_target(target)
+
+
+def twn_pivot_x(target: InxUIScreenComponent, end_value: float, duration: float):
+    return twn_pivot(target, Vector2(end_value, 0), duration).set_options(AxisConstraint.X)
+
+
+def twn_pivot_y(target: InxUIScreenComponent, end_value: float, duration: float):
+    return twn_pivot(target, Vector2(0, end_value), duration).set_options(AxisConstraint.Y)
+
+
+def twn_size_delta(target: InxUIScreenComponent, end_value: Vector2, duration: float, snapping: bool=False):
+    end = end_value if isinstance(end_value, Vector2) else Vector2(*end_value)
+    return _property(target, 'size_delta', end, duration).set_options(snapping)
+
+
+def twn_anchor_min(target: InxUIScreenComponent, end_value: Vector2, duration: float, snapping: bool=False):
+    end = end_value if isinstance(end_value, Vector2) else Vector2(*end_value)
+    return _property(target, 'anchor_min', end, duration).set_options(snapping)
+
+
+def twn_anchor_max(target: InxUIScreenComponent, end_value: Vector2, duration: float, snapping: bool=False):
+    end = end_value if isinstance(end_value, Vector2) else Vector2(*end_value)
+    return _property(target, 'anchor_max', end, duration).set_options(snapping)
+
+
+def twn_anchor_pos(target: InxUIScreenComponent, end_value: Vector2, duration: float, snapping: bool=False):
+    end = end_value if isinstance(end_value, Vector2) else Vector2(*end_value)
+    return _property(target, 'anchored_position', end, duration).set_options(snapping)
+
+
+def twn_anchor_pos_x(target: InxUIScreenComponent, end_value: float, duration: float, snapping: bool=False):
+    return twn_anchor_pos(target, Vector2(end_value, 0), duration).set_options(AxisConstraint.X, snapping)
+
+
+def twn_anchor_pos_y(target: InxUIScreenComponent, end_value: float, duration: float, snapping: bool=False):
+    return twn_anchor_pos(target, Vector2(0, end_value), duration).set_options(AxisConstraint.Y, snapping)
+
+
+def twn_anchor_pos3d(target: InxUIScreenComponent, end_value: Vector3, duration: float, snapping: bool=False):
+    return _property(target, 'anchored_position3d', _vector(end_value), duration).set_options(snapping)
+
+
+def twn_anchor_pos3d_x(target: InxUIScreenComponent, end_value: float, duration: float, snapping: bool=False):
+    return twn_anchor_pos3d(target, Vector3(end_value, 0, 0), duration).set_options(AxisConstraint.X, snapping)
+
+
+def twn_anchor_pos3d_y(target: InxUIScreenComponent, end_value: float, duration: float, snapping: bool=False):
+    return twn_anchor_pos3d(target, Vector3(0, end_value, 0), duration).set_options(AxisConstraint.Y, snapping)
+
+
+def twn_anchor_pos3d_z(target: InxUIScreenComponent, end_value: float, duration: float, snapping: bool=False):
+    return twn_anchor_pos3d(target, Vector3(0, 0, end_value), duration).set_options(AxisConstraint.Z, snapping)
+
+
+def twn_jump_anchor_pos(target: InxUIScreenComponent, end_value: Vector2, jump_power: float,
+                        num_jumps: int, duration: float, snapping: bool=False):
+    end = end_value if isinstance(end_value, Vector2) else Vector2(*end_value)
+    return _jump(target, 'anchored_position', end, jump_power, num_jumps, duration, snapping)
+
+
+def twn_punch_anchor_pos(target: InxUIScreenComponent, punch: Vector2, duration: float,
+                         vibrato: int=10, elasticity: float=1., snapping: bool=False):
+    if duration <= 0:
+        return None
+    layout = target.rect_transform
+    direction = Vector3(punch[0], punch[1], 0)
+    tween = _punch_tween(lambda: layout._planar_position, lambda value: setattr(layout, '_planar_position', value),
+                         direction, duration, vibrato, elasticity)
+    return _default_manager.add(tween).set_options(snapping).set_target(target)
+
+
+@overload
+def twn_shake_anchor_pos(target: InxUIScreenComponent, duration: float, strength: float=100., vibrato: int=10,
+                         randomness: float=90., snapping: bool=False, fade_out: bool=True,
+                         randomness_mode: ShakeRandomnessMode=ShakeRandomnessMode.FULL): ...
+@overload
+def twn_shake_anchor_pos(target: InxUIScreenComponent, duration: float, strength: Vector2, vibrato: int=10,
+                         randomness: float=90., snapping: bool=False, fade_out: bool=True,
+                         randomness_mode: ShakeRandomnessMode=ShakeRandomnessMode.FULL): ...
+def twn_shake_anchor_pos(target, duration, strength=100., vibrato=10, randomness=90., snapping=False,
+                         fade_out=True, randomness_mode=ShakeRandomnessMode.FULL):
+    if duration <= 0:
+        return None
+    if isinstance(strength, Vector2):
+        strength = Vector3(strength.x, strength.y, 0)
+    offsets, durations = _shake_offsets(duration, strength, vibrato, randomness, fade_out, randomness_mode, True)
+    layout = target.rect_transform
+    tween = _impulse_tween(lambda: layout._planar_position, lambda value: setattr(layout, '_planar_position', value),
+                           offsets, durations, 'shake')
+    return _default_manager.add(tween).set_options(snapping).set_target(target)
+
+
+def twn_shape_circle(target: InxUIScreenComponent, center: Vector2, end_value_degrees: float,
+                      duration: float, relative_center: bool=False, snapping: bool=False):
+    point = center if isinstance(center, Vector2) else Vector2(*center)
+    return _default_manager.to(CirclePlugin.get(), lambda: target.anchored_position,
+        lambda value: setattr(target, 'anchored_position', value), point, duration).set_options(
+            end_value_degrees, relative_center, snapping).set_target(target)
+
+
+def _layout_size(target, prefix, end_value, duration, snapping):
+    if not isinstance(target, UILayoutElement):
+        raise TypeError("Layout size shortcuts require a UILayoutElement")
+    width, height = prefix + "_width", prefix + "_height"
+
     def write(value):
-        target.width, target.height = value
+        setattr(target, width, value.x)
+        setattr(target, height, value.y)
 
     end = end_value if isinstance(end_value, Vector2) else Vector2(*end_value)
-    return _default_manager.to(lambda: Vector2(target.width, target.height), write, end,
-                               duration).set_options(snapping).set_target(target)
+    return _default_manager.to(lambda: Vector2(getattr(target, width), getattr(target, height)),
+                               write, end, duration).set_options(snapping).set_target(target)
 
 
-def do_text(target: UIText, end_value: str, duration: float, rich_text_enabled: bool=True,
+def twn_min_size(target: UILayoutElement, end_value: Vector2, duration: float, snapping: bool=False):
+    return _layout_size(target, "min", end_value, duration, snapping)
+
+
+def twn_preferred_size(target: UILayoutElement, end_value: Vector2, duration: float, snapping: bool=False):
+    return _layout_size(target, "preferred", end_value, duration, snapping)
+
+
+def twn_flexible_size(target: UILayoutElement, end_value: Vector2, duration: float, snapping: bool=False):
+    return _layout_size(target, "flexible", end_value, duration, snapping)
+
+
+def twn_text(target: UIText, end_value: str, duration: float, rich_text_enabled: bool=True,
             scramble_mode: ScrambleMode=ScrambleMode.NONE, scramble_chars: str|None=None):
     if not isinstance(end_value, str):
         raise TypeError("end_value must be str")
     tween = StringTweener(lambda: target.text, lambda value: setattr(target, "text", value), end_value, duration)
-    tween._font_size = target.font_size
     tween.set_options(rich_text_enabled, scramble_mode, scramble_chars)
     target.rich_text = rich_text_enabled
     return _default_manager.add(tween).set_target(target)
@@ -461,7 +682,7 @@ class CultureInfo:
         return ("-" if value < 0 else "") + self.number_group_separator.join(reversed(groups))
 
 
-def do_counter(target: UIText, from_value: int, end_value: int, duration: float,
+def twn_counter(target: UIText, from_value: int, end_value: int, duration: float,
                add_thousands_separator: bool=True, culture: CultureInfo|None=None):
     if type(from_value) is not int or type(end_value) is not int:
         raise TypeError("Counter values must be int")
@@ -473,7 +694,7 @@ def do_counter(target: UIText, from_value: int, end_value: int, duration: float,
     return _default_manager.to(lambda: from_value, write, end_value, duration).set_target(target)
 
 
-def do_max_visible_characters(target: UIText, end_value: int, duration: float):
+def twn_max_visible_characters(target: UIText, end_value: int, duration: float):
     if type(end_value) is not int:
         raise TypeError("end_value must be int")
     if target.max_visible_characters < 0:
@@ -481,90 +702,112 @@ def do_max_visible_characters(target: UIText, end_value: int, duration: float):
     return _property(target, "max_visible_characters", end_value, duration)
 
 
-def do_move_x(target: Transform|Rigidbody, end_value: float, duration: float, snapping: bool=False):
+def twn_move_x(target: Transform|Rigidbody, end_value: float, duration: float, snapping: bool=False):
     return _axis(target, "position", 0, end_value, duration, snapping)
 
 
-def do_move_y(target: Transform|Rigidbody, end_value: float, duration: float, snapping: bool=False):
+def twn_move_y(target: Transform|Rigidbody, end_value: float, duration: float, snapping: bool=False):
     return _axis(target, "position", 1, end_value, duration, snapping)
 
 
-def do_move_z(target: Transform|Rigidbody, end_value: float, duration: float, snapping: bool=False):
+def twn_move_z(target: Transform|Rigidbody, end_value: float, duration: float, snapping: bool=False):
     return _axis(target, "position", 2, end_value, duration, snapping)
 
 
-def do_local_move_x(target: Transform, end_value: float, duration: float, snapping: bool=False):
+def twn_local_move_x(target: Transform, end_value: float, duration: float, snapping: bool=False):
     return _axis(target, "local_position", 0, end_value, duration, snapping)
 
 
-def do_local_move_y(target: Transform, end_value: float, duration: float, snapping: bool=False):
+def twn_local_move_y(target: Transform, end_value: float, duration: float, snapping: bool=False):
     return _axis(target, "local_position", 1, end_value, duration, snapping)
 
 
-def do_local_move_z(target: Transform, end_value: float, duration: float, snapping: bool=False):
+def twn_local_move_z(target: Transform, end_value: float, duration: float, snapping: bool=False):
     return _axis(target, "local_position", 2, end_value, duration, snapping)
 
 
-def do_scale_x(target: Transform, end_value: float, duration: float):
+def twn_scale_x(target: Transform, end_value: float, duration: float):
     return _axis(target, "local_scale", 0, end_value, duration)
 
 
-def do_scale_y(target: Transform, end_value: float, duration: float):
+def twn_scale_y(target: Transform, end_value: float, duration: float):
     return _axis(target, "local_scale", 1, end_value, duration)
 
 
-def do_scale_z(target: Transform, end_value: float, duration: float):
+def twn_scale_z(target: Transform, end_value: float, duration: float):
     return _axis(target, "local_scale", 2, end_value, duration)
 
 
-def do_pitch(target: AudioSource, end_value: float, duration: float):
+def twn_pitch(target: AudioSource, end_value: float, duration: float):
     return _property(target, "pitch", end_value, duration)
 
 
-def do_intensity(target: Light, end_value: float, duration: float):
+def twn_intensity(target: Light, end_value: float, duration: float):
     return _property(target, "intensity", end_value, duration)
 
 
-def do_shadow_strength(target: Light, end_value: float, duration: float):
+def twn_shadow_strength(target: Light, end_value: float, duration: float):
     return _property(target, "shadow_strength", end_value, duration)
 
 
-def do_field_of_view(target: Camera, end_value: float, duration: float):
+def twn_field_of_view(target: Camera, end_value: float, duration: float):
     return _property(target, "field_of_view", end_value, duration)
 
 
-def do_ortho_size(target: Camera, end_value: float, duration: float):
+def twn_ortho_size(target: Camera, end_value: float, duration: float):
     return _property(target, "orthographic_size", end_value, duration)
 
 
-def do_near_clip_plane(target: Camera, end_value: float, duration: float):
+def twn_near_clip_plane(target: Camera, end_value: float, duration: float):
     return _property(target, "near_clip", end_value, duration)
 
 
-def do_far_clip_plane(target: Camera, end_value: float, duration: float):
+def twn_far_clip_plane(target: Camera, end_value: float, duration: float):
     return _property(target, "far_clip", end_value, duration)
 
 
-def do_font_size(target: UIText, end_value: float, duration: float):
+def twn_font_size(target: UIText, end_value: float, duration: float):
     return _property(target, "font_size", end_value, duration)
 
 
-def do_time_scale(target: Tween, end_value: float, duration: float):
+def twn_time_scale(target: Tween, end_value: float, duration: float):
     return _property(target, "time_scale", end_value, duration)
 
 
-def do_float(target: Material, end_value: float, property: str, duration: float):
-    if not isinstance(property, str):
-        raise TypeError("Material property must be str")
+def twn_resize(target: TrailRenderer, to_start_width: float, to_end_width: float, duration: float):
+    if not isinstance(target, TrailRenderer):
+        raise TypeError("twn_resize requires a TrailRenderer")
+    def write(value):
+        target.start_width = value.x
+        target.end_width = value.y
+    return _default_manager.to(lambda: Vector2(target.start_width, target.end_width), write,
+                               Vector2(to_start_width, to_end_width), duration).set_target(target)
+
+
+def twn_time(target: TrailRenderer, end_value: float, duration: float):
+    if not isinstance(target, TrailRenderer):
+        raise TypeError("twn_time requires a TrailRenderer")
+    return _property(target, "time", end_value, duration)
+
+
+@overload
+def twn_float(target: Material, end_value: float, property: str, duration: float): ...
+@overload
+def twn_float(target: Material, end_value: float, property_id: int, duration: float): ...
+def twn_float(target: Material, end_value: float, *args, **kwargs):
+    property, duration = _material_arguments(args, kwargs, default=None)
     if not target.has_property(property):
         return None
     return _default_manager.to(lambda: target.get_float(property), lambda value: target.set_float(property, value),
                       end_value, duration).set_target(target)
 
 
-def do_vector(target: Material, end_value: vec4f, property: str, duration: float):
-    if not isinstance(property, str):
-        raise TypeError("Material property must be str")
+@overload
+def twn_vector(target: Material, end_value: vec4f, property: str, duration: float): ...
+@overload
+def twn_vector(target: Material, end_value: vec4f, property_id: int, duration: float): ...
+def twn_vector(target: Material, end_value: vec4f, *args, **kwargs):
+    property, duration = _material_arguments(args, kwargs, default=None)
     if not target.has_property(property):
         return None
     end = end_value if isinstance(end_value, vec4f) else vec4f(*end_value)
@@ -572,37 +815,37 @@ def do_vector(target: Material, end_value: vec4f, property: str, duration: float
                                end, duration).set_target(target)
 
 
-def do_complete(target: object, with_callbacks: bool=False): return _default_manager.complete(target, with_callbacks)
+def twn_complete(target: object, with_callbacks: bool=False): return _default_manager.complete(target, with_callbacks)
 
 
-def do_kill(target: object, complete: bool=False): return _default_manager.kill(target, complete)
+def twn_kill(target: object, complete: bool=False): return _default_manager.kill(target, complete)
 
 
-def do_flip(target: object): return _default_manager.flip(target)
+def twn_flip(target: object): return _default_manager.flip(target)
 
 
-def do_goto(target: object, to: float, and_play: bool=False): return _default_manager.goto(target, to, and_play)
+def twn_goto(target: object, to: float, and_play: bool=False): return _default_manager.goto(target, to, and_play)
 
 
-def do_pause(target: object): return _default_manager.pause(target)
+def twn_pause(target: object): return _default_manager.pause(target)
 
 
-def do_play(target: object): return _default_manager.play(target)
+def twn_play(target: object): return _default_manager.play(target)
 
 
-def do_play_backwards(target: object): return _default_manager.play_backwards(target)
+def twn_play_backwards(target: object): return _default_manager.play_backwards(target)
 
 
-def do_play_forward(target: object): return _default_manager.play_forward(target)
+def twn_play_forward(target: object): return _default_manager.play_forward(target)
 
 
-def do_restart(target: object, include_delay: bool=True): return _default_manager.restart(target, include_delay)
+def twn_restart(target: object, include_delay: bool=True): return _default_manager.restart(target, include_delay)
 
 
-def do_rewind(target: object, include_delay: bool=True): return _default_manager.rewind(target, include_delay)
+def twn_rewind(target: object, include_delay: bool=True): return _default_manager.rewind(target, include_delay)
 
 
-def do_smooth_rewind(target: object): return _default_manager.smooth_rewind(target)
+def twn_smooth_rewind(target: object): return _default_manager.smooth_rewind(target)
 
 
-def do_toggle_pause(target: object): return _default_manager.toggle_pause(target)
+def twn_toggle_pause(target: object): return _default_manager.toggle_pause(target)
