@@ -31,7 +31,14 @@ def invoke_callbacks(entries, bindings, owner):
             continue
         target = component.game_object
         binding = bindings[index]
-        if binding is None or not binding.matches(entry, target, component):
+        scope = binding.reference.execution_scope if binding is not None else None
+        if (
+            binding is None
+            or not binding.matches(entry, target, component)
+            or (scope is not None and scope.state == "closed")
+        ):
+            # A persisted entry can outlive the receiver's edit execution scope.
+            # Resolve the live target above before binding to its new scope.
             binding = bindings[index] = _UIEventRuntimeBinding.create(entry, component, target)
         result = binding.invoke(entry)
         if result.status not in {"resolved", "direct"}:
