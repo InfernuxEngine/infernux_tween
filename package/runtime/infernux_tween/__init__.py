@@ -31,7 +31,7 @@ from .yield_instruction import (
 from .editor_preview import TweenEditorPreview
 from .settings import SafeModeOptions, TweenSettings
 
-version = "0.3.1"
+version = "0.3.2"
 from .shortcuts import (
     twn_path,
     twn_local_path,
